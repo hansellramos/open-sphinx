@@ -84,3 +84,24 @@ body { background-color: #f4f4f8; }
 .zona-pegar { display: flex; align-items: center; justify-content: center; text-align: center; white-space: nowrap; overflow: hidden; padding: .5rem 1rem; min-height: 2.5rem; border: 1px dashed var(--cui-border-color); border-radius: .5rem; color: var(--cui-secondary-color); font-size: .875rem; caret-color: transparent; -webkit-user-select: text; }
 .zona-pegar:focus { outline: 2px solid #5b4bd6; outline-offset: 1px; }
 .zona-pegar:empty::before { content: attr(data-texto); white-space: normal; }
+// Visor a pantalla completa
+.foto-ampliable { cursor: zoom-in; }
+.visor-completo { position: fixed; inset: 0; z-index: 2000; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; color: #fff; }
+.vc-slide { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.visor-completo.animando .vc-slide, .visor-completo.animando .vc-foto { transition: transform .25s ease; }
+.visor-completo.animando { transition: background-color .25s ease; }
+.vc-foto { max-width: 100vw; max-height: 100vh; max-height: 100dvh; object-fit: contain; transform-origin: center; will-change: transform; -webkit-user-drag: none; }
+.vc-video { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.vc-play { position: absolute; width: 5rem; height: 5rem; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .55); color: #fff; display: flex; align-items: center; justify-content: center; }
+.vc-barra { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: .5rem; padding: calc(env(safe-area-inset-top) + .5rem) .75rem .75rem; background: linear-gradient(rgba(0, 0, 0, .6), transparent); }
+.vc-titulo { flex: 1; min-width: 0; text-align: center; line-height: 1.2; }
+.vc-btn { border: 0; background: rgba(0, 0, 0, .35); color: #fff; border-radius: 2rem; min-width: 2.75rem; height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; padding: 0 .6rem; }
+.vc-btn:disabled { opacity: .7; }
+.vc-nav { position: absolute; top: 50%; transform: translateY(-50%); }
+.vc-ant { left: .75rem; }
+.vc-sig { right: .75rem; }
+@media (hover: none) { .vc-nav { display: none !important; } }
+.ver-medio { position: relative; }
+.ver-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 2.5rem; height: 2.5rem; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .4); color: #fff; display: flex; align-items: center; justify-content: center; }
+.ver-ant { left: .5rem; }
+.ver-sig { right: .5rem; }

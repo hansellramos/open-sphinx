@@ -18,6 +18,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   const cargado = ref(false)
   const metaKey = shallowRef(null)
   const thumbs = new Map() // id → blob URL
+  const secuencia = ref([]) // ids en el orden de la última lista vista, para pasar al anterior/siguiente
   let publicKey = null
   let cargando = null
   let timer = null
@@ -248,9 +249,49 @@ export const useBovedaStore = defineStore('boveda', () => {
     setTimeout(() => URL.revokeObjectURL(url), 60_000)
   }
 
+  // Para compartir (WhatsApp, etc.): la foto como se ve (JPEG si era HEIC), el video armado como un
+  // MP4 (init + fragmentos, ya descifrados) y los archivos tal cual. Todo queda en memoria.
+  async function paraCompartir(v, progreso) {
+    const t = tipo(v)
+    const base = (v.m.originalName || v.m.title || 'archivo').replace(/\.[^.]+$/, '')
+    if (t === 'imagen') {
+      const blob = await imagen(v)
+      return new File([blob], v.m.vista ? `${base}.jpg` : v.m.originalName || `${base}.jpg`, { type: blob.type || 'image/jpeg' })
+    }
+    if (t === 'archivo') return new File([await original(v, progreso)], v.m.originalName || base, { type: v.m.mime || 'application/octet-stream' })
+    const key = await auth.claveDe(v)
+    const lista = new TextDecoder().decode(await bajar(v, 'index.m3u8'))
+    const segs = lista.split('\n').map((l) => l.trim()).filter((l) => /^seg_\d{5}\.m4s$/.test(l))
+    const partes = [await decryptBlob(key, await bajar(v, 'init.mp4'))]
+    for (let i = 0; i < segs.length; i++) {
+      partes.push(await decryptBlob(key, await bajar(v, segs[i])))
+      progreso?.((i + 1) / segs.length)
+    }
+    return new File(partes, `${base}.mp4`, { type: 'video/mp4' })
+  }
+
+  // Hoja de compartir del sistema; si el navegador no la tiene, se descarga.
+  async function compartir(file) {
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] })
+      } catch (e) {
+        if (e.name !== 'AbortError') throw e
+      }
+      return
+    }
+    const url = URL.createObjectURL(file)
+    const a = Object.assign(document.createElement('a'), { href: url, download: file.name })
+    document.body.append(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
   function limpiar() {
     clearTimeout(timer)
     items.value = []
+    secuencia.value = []
     catalogo.value = { v: 1, tags: [] }
     metaKey.value = null
     cargado.value = false
@@ -264,7 +305,7 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
-    huellas, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
+    huellas, secuencia, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     favorito, renombrar, borrar, thumbUrl, publicKey: () => publicKey,
   }
 })

@@ -1,6 +1,7 @@
 <script setup>
 // Ver un elemento. Video: hls.js baja cada fragmento cifrado y este loader lo descifra. Foto: se baja y
-// descifra la imagen. Archivo: vista previa si el navegador la sabe mostrar, y descarga del original.
+// descifra la imagen (al tocarla, pantalla completa con zoom). Archivo: vista previa si el navegador la sabe
+// mostrar, y descarga del original. Se pasa al anterior/siguiente deslizando o con las flechas.
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Hls from 'hls.js'
@@ -11,6 +12,8 @@ import { decryptBlob } from '@shared/crypto.js'
 import { duracion, extension, fechaHora, iconoArchivo, tamano, vistaPrevia } from '@/lib/formato'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
+import VisorCompleto from '@/components/elementos/VisorCompleto.vue'
+import { useCompartir } from '@/lib/compartir'
 
 const PREVIA_AUTO = 50 * 1024 * 1024 // más grande que esto, la vista previa se pide a mano
 
@@ -28,12 +31,50 @@ const urlPrevia = ref(null) // blob URL de la foto o del archivo
 const texto = ref(null)
 const cargando = ref(false)
 const progreso = ref(null)
+const visor = ref(false)
+let archivoFoto = null // la foto ya descifrada, para compartirla sin volver a bajarla
 let hls = null
+const { progreso: progresoCompartir, compartir } = useCompartir()
 
 const item = computed(() => boveda.items.find((v) => v.id === route.params.id))
 const m = computed(() => item.value?.m)
 const tipo = computed(() => (m.value ? boveda.tipo(item.value) : null))
 const previa = computed(() => (tipo.value === 'archivo' ? vistaPrevia(m.value.mime ?? '', m.value.originalName) : null))
+// Orden para pasar al anterior/siguiente: el de la lista desde la que se abrió, o por fecha.
+const secuencia = computed(() => {
+  const id = route.params.id
+  const ids = boveda.secuencia.filter((x) => boveda.items.some((v) => v.id === x && v.m))
+  if (ids.includes(id)) return ids
+  const lista = tipo.value === 'archivo' ? boveda.archivos : boveda.galeria
+  return [...lista].sort((a, b) => new Date(boveda.fechaDe(b)) - new Date(boveda.fechaDe(a))).map((v) => v.id)
+})
+const pos = computed(() => secuencia.value.indexOf(route.params.id))
+const anterior = computed(() => (pos.value > 0 ? secuencia.value[pos.value - 1] : null))
+const siguiente = computed(() => (pos.value >= 0 ? secuencia.value[pos.value + 1] ?? null : null))
+const ir = (id) => id && router.replace(`/ver/${id}`)
+const idsVisor = computed(() => secuencia.value.filter((id) => boveda.tipo(boveda.items.find((v) => v.id === id)) !== 'archivo'))
+function cerrarVisor(id) {
+  visor.value = false
+  if (id !== route.params.id) ir(id)
+}
+
+// Deslizar a los lados sobre la foto o el archivo (en el video no, que choca con la barra de tiempo).
+let toque = null
+const toqueInicio = (e) => (toque = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null)
+function toqueFin(e) {
+  if (!toque) return
+  const dx = e.changedTouches[0].clientX - toque.x
+  const dy = e.changedTouches[0].clientY - toque.y
+  toque = null
+  if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) ir(dx < 0 ? siguiente.value : anterior.value)
+}
+function tecla(e) {
+  if (visor.value || editando.value || ubicando.value || e.target.closest('input, textarea, [contenteditable]')) return
+  if (e.key === 'ArrowRight') ir(siguiente.value)
+  else if (e.key === 'ArrowLeft') ir(anterior.value)
+}
+const compartirEste = () => compartir(item.value, tipo.value === 'imagen' ? archivoFoto : null)
+
 const etiquetaFecha = computed(() => (tipo.value === 'video' ? 'Grabado' : tipo.value === 'imagen' ? 'Tomada' : 'Fecha'))
 
 function loaderDescifrador(key) {
@@ -96,7 +137,7 @@ async function reproducir() {
 const mostrarPrevia = accion(async () => {
   cargando.value = true
   try {
-    const blob = tipo.value === 'imagen' ? await boveda.imagen(item.value) : await boveda.original(item.value, (p) => (progreso.value = Math.round(p * 100)))
+    const blob = tipo.value === 'imagen' ? (archivoFoto = await boveda.paraCompartir(item.value)) : await boveda.original(item.value, (p) => (progreso.value = Math.round(p * 100)))
     if (previa.value === 'texto') texto.value = (await blob.slice(0, 1024 * 1024).text()) + (blob.size > 1024 * 1024 ? '\n…' : '')
     else urlPrevia.value = URL.createObjectURL(blob)
   } finally {
@@ -106,6 +147,7 @@ const mostrarPrevia = accion(async () => {
 })
 
 onMounted(async () => {
+  window.addEventListener('keydown', tecla, true)
   try {
     await boveda.cargar()
     if (!item.value) return (error.value = 'No encontrado')
@@ -117,6 +159,7 @@ onMounted(async () => {
   }
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', tecla, true)
   hls?.destroy()
   if (urlPrevia.value) URL.revokeObjectURL(urlPrevia.value)
 })
@@ -136,7 +179,10 @@ onBeforeUnmount(() => {
         <CButton v-if="tipo !== 'video'" color="secondary" variant="ghost" class="ms-auto" :disabled="progreso !== null" title="Descargar el original" @click="descargar">
           <CIcon icon="cil-cloud-download" size="lg" /><span v-if="progreso !== null" class="ms-1 small">{{ progreso }}%</span>
         </CButton>
-        <CButton color="link" :class="[m.favorite ? 'text-warning' : 'text-body-secondary', { 'ms-auto': tipo === 'video' }]" :title="m.favorite ? 'Quitar de favoritos' : 'Marcar como favorito'" @click="favorito">
+        <CButton color="secondary" variant="ghost" :class="{ 'ms-auto': tipo === 'video' }" :disabled="progresoCompartir !== null" title="Compartir" @click="compartirEste">
+          <CIcon icon="cil-share-boxed" size="lg" /><span v-if="progresoCompartir !== null" class="ms-1 small">{{ progresoCompartir }}%</span>
+        </CButton>
+        <CButton color="link" :class="[m.favorite ? 'text-warning' : 'text-body-secondary']" :title="m.favorite ? 'Quitar de favoritos' : 'Marcar como favorito'" @click="favorito">
           <CIcon icon="cil-star" size="xl" />
         </CButton>
       </template>
@@ -144,6 +190,7 @@ onBeforeUnmount(() => {
   </div>
   <CAlert v-if="error" color="danger">{{ error }}</CAlert>
 
+  <div class="ver-medio" @touchstart.passive="toqueInicio" @touchend.passive="tipo !== 'video' && toqueFin($event)">
   <!-- disableremoteplayback: requerido por ManagedMediaSource en iPhone -->
   <video v-if="tipo === 'video'" v-show="!error" ref="el" class="player" controls playsinline autoplay disableremoteplayback></video>
 
@@ -151,7 +198,8 @@ onBeforeUnmount(() => {
     <div v-if="cargando" class="visor d-flex align-items-center justify-content-center">
       <CSpinner /><span v-if="progreso !== null" class="ms-2 small">{{ progreso }}%</span>
     </div>
-    <img v-else-if="urlPrevia && (tipo === 'imagen' || previa === 'imagen')" :src="urlPrevia" class="foto" :alt="m.title" />
+    <img v-else-if="urlPrevia && tipo === 'imagen'" :src="urlPrevia" class="foto foto-ampliable" :alt="m.title" title="Ver en pantalla completa" @click="visor = true" />
+    <img v-else-if="urlPrevia && previa === 'imagen'" :src="urlPrevia" class="foto" :alt="m.title" />
     <iframe v-else-if="urlPrevia && previa === 'pdf'" :src="urlPrevia" class="visor visor-doc" :title="m.title"></iframe>
     <audio v-else-if="urlPrevia && previa === 'audio'" :src="urlPrevia" controls class="w-100"></audio>
     <video v-else-if="urlPrevia && previa === 'video'" :src="urlPrevia" controls playsinline class="player"></video>
@@ -166,6 +214,9 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </template>
+  <button v-if="m && anterior" type="button" class="ver-nav ver-ant" title="Anterior" @click="ir(anterior)"><CIcon icon="cil-chevron-left" size="lg" /></button>
+  <button v-if="m && siguiente" type="button" class="ver-nav ver-sig" title="Siguiente" @click="ir(siguiente)"><CIcon icon="cil-chevron-right" size="lg" /></button>
+  </div>
 
   <CRow v-if="m" class="mt-3 mb-4 g-3">
     <CCol md="7">
@@ -188,5 +239,6 @@ onBeforeUnmount(() => {
       </div>
     </CCol>
   </CRow>
+  <VisorCompleto v-if="visor" :ids="idsVisor" :inicial="item.id" @cerrar="cerrarVisor" />
   <UbicacionModal v-if="m && tipo !== 'archivo'" :item="item" :visible="ubicando" @close="ubicando = false" @save="guardarUbicacion" />
 </template>

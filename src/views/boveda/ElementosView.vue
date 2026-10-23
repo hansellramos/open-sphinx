@@ -65,6 +65,12 @@ const filtrados = computed(() => {
 })
 
 // Agrupado por mes de la fecha en que se tomó/grabó.
+// Al abrir uno, el visor pasa al anterior/siguiente en este mismo orden y con estos filtros.
+function abrir(v) {
+  boveda.secuencia = filtrados.value.filter((x) => x.m).map((x) => x.id)
+  router.push(`/ver/${v.id}`)
+}
+
 const grupos = computed(() => {
   const out = []
   for (const v of filtrados.value) {
@@ -177,7 +183,7 @@ watch(() => route.fullPath, () => (q.value = ''))
     <template v-for="g in grupos" :key="g.k">
       <div class="grupo-mes">{{ g.k }}</div>
       <CListGroup>
-        <CListGroupItem v-for="v in g.items" :key="v.id" class="d-flex align-items-center gap-3 archivo-fila" @click="router.push(`/ver/${v.id}`)">
+        <CListGroupItem v-for="v in g.items" :key="v.id" class="d-flex align-items-center gap-3 archivo-fila" @click="abrir(v)">
           <CIcon :icon="iconoArchivo(v.m.originalName, v.m.mime ?? '')" size="xl" class="text-body-secondary flex-shrink-0" />
           <div class="flex-grow-1 min-w-0">
             <div class="text-truncate fw-semibold" :title="v.m.title">{{ v.m.title }}</div>
@@ -204,7 +210,7 @@ watch(() => route.fullPath, () => (q.value = ''))
   <template v-for="g in grupos" v-else :key="g.k">
     <div class="grupo-mes">{{ g.k }}</div>
     <div class="video-grid">
-      <CCard v-for="v in g.items" :key="v.id" class="video-card" @click="router.push(`/ver/${v.id}`)">
+      <CCard v-for="v in g.items" :key="v.id" class="video-card" @click="abrir(v)">
         <Miniatura :item="v">
           <button type="button" class="fav" :class="{ on: v.m.favorite }" :title="v.m.favorite ? 'Quitar de favoritos' : 'Favorito'" @click.stop="favorito(v)">
             <CIcon icon="cil-star" :class="{ 'opacity-50': !v.m.favorite }" />
