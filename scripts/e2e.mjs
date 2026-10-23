@@ -51,6 +51,18 @@ try {
   await page.locator('.thumb img').waitFor({ timeout: 90000 })
   paso('worker cifró y la miniatura se descifra en el navegador')
 
+  // Etiquetas: desde el menú de la tarjeta, luego filtrar.
+  await page.getByRole('button', { name: 'Opciones' }).first().click()
+  await page.getByRole('button', { name: 'Etiquetas' }).click()
+  const campo = page.getByPlaceholder('Escribe y Enter…')
+  await campo.fill('Viajes'); await campo.press('Enter')
+  await campo.fill('2024'); await campo.press('Enter')
+  await page.getByRole('button', { name: 'Guardar' }).click()
+  await page.locator('.video-card .badge', { hasText: 'Viajes' }).waitFor()
+  await page.locator('button.rounded-pill', { hasText: '2024' }).click()
+  if ((await page.locator('.video-card').count()) !== 1) throw new Error('el filtro por etiqueta no muestra el video')
+  paso('etiquetas: agregar y filtrar')
+
   await page.locator('.video-card').first().click()
   await page.waitForURL(/#\/videos\/[0-9a-f-]+/)
   await page.locator('video').evaluate((v) => { v.muted = true; return v.play().catch(() => {}) })
@@ -59,6 +71,12 @@ try {
   await page.locator('video').evaluate((v) => (v.currentTime = 25))
   await page.waitForFunction(() => document.querySelector('video')?.currentTime > 26, null, { timeout: 30000 })
   paso('reproduce descifrando por fragmentos, y salta a minuto distinto')
+  const campo2 = page.getByPlaceholder('Escribe y Enter…')
+  await campo2.fill('Familia'); await campo2.press('Enter')
+  await page.waitForResponse((r) => r.url().includes('/etiquetas') && r.request().method() === 'PUT')
+  const tags = await page.evaluate(async () => (await (await fetch(location.pathname.replace(/\/$/, '') + '/api/videos')).json())[0].tags.map((t) => t.name))
+  if (tags.join() !== '2024,Familia,Viajes') throw new Error(`etiquetas desde el reproductor: ${tags}`)
+  paso('etiquetas desde el reproductor')
 
   await page.getByRole('button', { name: /Bloquear/ }).click()
   await page.waitForURL(/#\/entrar/)

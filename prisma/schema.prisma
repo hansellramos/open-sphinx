@@ -56,6 +56,16 @@ model Video {
   createdAt    DateTime  @default(now())
   readyAt      DateTime?
   jobs         Job[]
+  tags         Tag[]
+}
+
+// Etiquetas (MVP: sin cifrar, para poder filtrar y luego compartir por etiqueta).
+model Tag {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  color     String   @default("primary")
+  createdAt DateTime @default(now())
+  videos    Video[]
 }
 
 model Job {

@@ -16,6 +16,24 @@ const ocupado = ref(false)
 const codigo = ref('')
 const confirmarCodigo = ref(false)
 const borrar = ref(null)
+const etiquetas = ref([])
+const borrarEtq = ref(null)
+const COLORES = ['primary', 'success', 'danger', 'warning', 'info', 'secondary', 'dark']
+
+const cargarEtiquetas = async () => (etiquetas.value = await api.get('/etiquetas'))
+async function guardarEtiqueta(e, cambios) {
+  try {
+    Object.assign(e, await api.put(`/etiquetas/${e.id}`, cambios))
+  } catch (err) {
+    toast.error(err)
+    cargarEtiquetas()
+  }
+}
+async function confirmarBorrarEtq() {
+  await api.del(`/etiquetas/${borrarEtq.value.id}`).catch((e) => toast.error(e))
+  borrarEtq.value = null
+  cargarEtiquetas()
+}
 
 const cargar = async () => (passkeys.value = await api.get('/auth/credenciales'))
 
@@ -52,7 +70,7 @@ async function generarCodigo() {
     toast.error(e)
   }
 }
-onMounted(cargar)
+onMounted(() => Promise.all([cargar(), cargarEtiquetas()]))
 </script>
 
 <template>
@@ -93,6 +111,29 @@ onMounted(cargar)
   </CCard>
 
   <CCard class="mb-4">
+    <CCardHeader class="fw-semibold">Etiquetas</CCardHeader>
+    <CCardBody>
+      <p v-if="!etiquetas.length" class="small text-body-secondary mb-0">Aún no hay etiquetas. Se crean al etiquetar un video.</p>
+      <div v-for="e in etiquetas" :key="e.id" class="d-flex align-items-center gap-2 mb-2" style="max-width: 36rem">
+        <CFormInput :model-value="e.name" size="sm" maxlength="40" @change="guardarEtiqueta(e, { name: $event.target.value })" />
+        <div class="d-flex gap-1">
+          <button
+            v-for="c in COLORES"
+            :key="c"
+            type="button"
+            :class="['btn', 'btn-sm', `btn-${c}`, 'p-0', 'rounded-circle', { 'border border-2 border-white': e.color === c }]"
+            style="width: 1.3rem; height: 1.3rem"
+            :title="c"
+            @click="guardarEtiqueta(e, { color: c })"
+          ></button>
+        </div>
+        <span class="small text-body-secondary text-nowrap">{{ e.videos }} video{{ e.videos === 1 ? '' : 's' }}</span>
+        <CButton color="link" size="sm" class="text-danger" @click="borrarEtq = e"><CIcon icon="cil-trash" /></CButton>
+      </div>
+    </CCardBody>
+  </CCard>
+
+  <CCard class="mb-4">
     <CCardHeader class="fw-semibold">Código de recuperación</CCardHeader>
     <CCardBody>
       <template v-if="!codigo">
@@ -109,6 +150,15 @@ onMounted(cargar)
     <CModalFooter>
       <CButton color="secondary" variant="ghost" @click="confirmarCodigo = false">Cancelar</CButton>
       <CButton color="warning" @click="generarCodigo">Generar</CButton>
+    </CModalFooter>
+  </CModal>
+
+  <CModal :visible="!!borrarEtq" @close="borrarEtq = null" alignment="center">
+    <CModalHeader><CModalTitle>¿Borrar la etiqueta?</CModalTitle></CModalHeader>
+    <CModalBody v-if="borrarEtq">Se quita <strong>{{ borrarEtq.name }}</strong> de {{ borrarEtq.videos }} video(s). Los videos no se borran.</CModalBody>
+    <CModalFooter>
+      <CButton color="secondary" variant="ghost" @click="borrarEtq = null">Cancelar</CButton>
+      <CButton color="danger" @click="confirmarBorrarEtq">Borrar</CButton>
     </CModalFooter>
   </CModal>
 

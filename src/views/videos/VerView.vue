@@ -7,6 +7,8 @@ import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { decryptBlob } from '@shared/crypto.js'
 import { duracion, fecha, tamano } from '@/lib/formato'
+import { useToastStore } from '@/stores/toast'
+import EtiquetasEditor from '@/components/videos/EtiquetasEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,7 +16,20 @@ const auth = useAuthStore()
 const video = ref(null)
 const el = ref(null)
 const error = ref('')
+const toast = useToastStore()
+const etiquetas = ref([])
+const nombres = ref([])
 let hls = null
+
+async function guardarEtiquetas(lista) {
+  nombres.value = lista
+  try {
+    video.value = await api.put(`/videos/${video.value.id}/etiquetas`, { nombres: lista })
+    etiquetas.value = await api.get('/etiquetas')
+  } catch (e) {
+    toast.error(e)
+  }
+}
 
 function loaderDescifrador(key) {
   const Base = Hls.DefaultConfig.loader
@@ -36,7 +51,8 @@ function loaderDescifrador(key) {
 
 onMounted(async () => {
   try {
-    video.value = await api.get(`/videos/${route.params.id}`)
+    ;[video.value, etiquetas.value] = await Promise.all([api.get(`/videos/${route.params.id}`), api.get('/etiquetas')])
+    nombres.value = video.value.tags.map((g) => g.name)
     if (video.value.status !== 'listo') return (error.value = 'El video todavía se está procesando')
     if (!Hls.isSupported()) return (error.value = 'Este navegador no soporta el reproductor (en iPhone se necesita iOS 17.1 o superior)')
     const key = await auth.claveDe(video.value)
@@ -61,6 +77,9 @@ onBeforeUnmount(() => hls?.destroy())
   <CAlert v-if="error" color="danger">{{ error }}</CAlert>
   <!-- disableremoteplayback: requerido por ManagedMediaSource en iPhone -->
   <video v-show="!error" ref="el" class="player" controls playsinline autoplay disableremoteplayback></video>
+  <div v-if="video" class="mt-3" style="max-width: 40rem">
+    <EtiquetasEditor :model-value="nombres" :sugerencias="etiquetas" @update:model-value="guardarEtiquetas" />
+  </div>
   <div v-if="video" class="small text-body-secondary mt-2 mb-4">
     {{ duracion(video.duration) }} · {{ video.width }}×{{ video.height }} · {{ video.videoCodec?.toUpperCase() }} · {{ tamano(video.size) }} · {{ video.originalName }} · subido {{ fecha(video.createdAt) }}
   </div>
