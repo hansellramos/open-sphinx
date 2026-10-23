@@ -20,3 +20,10 @@ export const ESTADOS = {
   listo: { color: 'success', texto: 'Listo' },
   error: { color: 'danger', texto: 'Error' },
 }
+
+export const mesAnio = (d) => {
+  const s = new Date(d).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+export const fechaHora = (d) => new Date(d).toLocaleString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' })

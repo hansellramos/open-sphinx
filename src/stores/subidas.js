@@ -3,6 +3,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import * as tus from 'tus-js-client'
+import { useBovedaStore } from '@/stores/boveda'
 
 let seq = 0
 
@@ -31,6 +32,7 @@ export const useSubidasStore = defineStore('subidas', () => {
         it.estado = 'listo'
         it.progreso = 100
         it.file = null
+        useBovedaStore().cargar(true).catch(() => {}) // aparece "En cola" y empieza el sondeo
         siguiente()
       },
       onError: (e) => {

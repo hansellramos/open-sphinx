@@ -53,3 +53,18 @@ body { background-color: #f4f4f8; }
 .player { width: 100%; max-height: 80vh; background: #000; border-radius: .75rem; }
 .dropzone { border: 2px dashed var(--cui-border-color); border-radius: .75rem; padding: 2.5rem 1rem; text-align: center; cursor: pointer; }
 .dropzone.over { border-color: var(--cui-primary); background: rgba(91, 75, 214, .08); }
+
+.thumb img { transition: filter .25s; }
+.thumb img.difuminada { filter: blur(22px) saturate(.6); transform: scale(1.15); }
+.thumb .fav { position: absolute; left: .35rem; top: .35rem; background: rgba(0,0,0,.45); border: 0; color: #fff; border-radius: 50%; width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; }
+.thumb .fav.on { color: #ffc107; }
+.etiqueta-punto { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; }
+.grupo-mes { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--cui-secondary-color); margin: 1.25rem 0 .5rem; }
+.mapa { height: calc(100vh - 13rem); min-height: 22rem; border-radius: .75rem; z-index: 0; }
+.mapa-pop img { width: 200px; aspect-ratio: 16/9; object-fit: cover; border-radius: .4rem; display: block; background: #111; }
+.mapa-pop img.difuminada { filter: blur(14px); }
+.leaflet-container .mapa-pop a { text-decoration: none; }
+.mapa-marca { width: 18px; height: 18px; border-radius: 50%; background: #5b4bd6; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(91, 75, 214, .35); }
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(91, 75, 214, .85); color: #fff; font-weight: 600; }
+.cortina { position: fixed; inset: 0; z-index: 99999; background: #13121f; display: flex; align-items: center; justify-content: center; }

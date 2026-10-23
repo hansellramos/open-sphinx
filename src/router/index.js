@@ -11,6 +11,9 @@ const routes = [
     redirect: '/videos',
     children: [
       { path: 'videos', name: 'Videos', component: () => import('@/views/videos/VideosView.vue') },
+      { path: 'favoritos', name: 'Favoritos', component: () => import('@/views/videos/VideosView.vue') },
+      { path: 'etiquetas/:id', name: 'Etiqueta', component: () => import('@/views/videos/VideosView.vue') },
+      { path: 'mapa', name: 'Mapa', component: () => import('@/views/videos/MapaView.vue') },
       { path: 'videos/:id', name: 'Ver', component: () => import('@/views/videos/VerView.vue') },
       { path: 'subir', name: 'Subir', component: () => import('@/views/videos/SubirView.vue') },
       { path: 'ajustes', name: 'Ajustes', component: () => import('@/views/ajustes/AjustesView.vue') },

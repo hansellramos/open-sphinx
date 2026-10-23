@@ -143,7 +143,8 @@ export async function openFileKey(privateKey, sealed) {
   const shared = new Uint8Array(await subtle.deriveBits({ name: 'X25519', public: ephPub }, privateKey, 256))
   const kek = await hkdfAesKey(shared, epk, INFO_FILEKEY, ['decrypt'])
   const raw = await subtle.decrypt({ name: 'AES-GCM', iv: fromB64u(sealed.iv) }, kek, fromB64u(sealed.ct))
-  return subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt'])
+  // encrypt también: el navegador re-cifra los metadatos del video al editarlos.
+  return subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt'])
 }
 
 // ---------------- archivos ----------------
@@ -160,4 +161,14 @@ export async function encryptBlob(fileKey, bytes) {
 export async function decryptBlob(fileKey, data) {
   const u8 = data instanceof Uint8Array ? data : new Uint8Array(data)
   return subtle.decrypt({ name: 'AES-GCM', iv: u8.subarray(0, 12) }, fileKey, u8.subarray(12))
+}
+
+// ---------------- JSON cifrado (metadatos) ----------------
+
+export async function encryptJSON(key, obj) {
+  return b64u(await encryptBlob(key, enc.encode(JSON.stringify(obj))))
+}
+
+export async function decryptJSON(key, b64) {
+  return JSON.parse(new TextDecoder().decode(await decryptBlob(key, fromB64u(b64))))
 }

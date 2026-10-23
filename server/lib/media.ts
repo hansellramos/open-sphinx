@@ -18,7 +18,32 @@ function run(cmd: string, args: string[]): Promise<string> {
   })
 }
 
-export type Probe = { duration: number; width: number; height: number; videoCodec: string; audioCodec: string | null }
+export type Probe = {
+  duration: number
+  width: number
+  height: number
+  videoCodec: string
+  audioCodec: string | null
+  takenAt: string | null // ISO
+  location: { lat: number; lon: number; alt?: number } | null
+  device: string | null
+}
+
+// "+04.6534-074.0836+2581.123/" (ISO 6709, lo que guarda el iPhone y Android)
+export function parseISO6709(v?: string) {
+  const m = v?.match(/^([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)?/)
+  if (!m) return null
+  const lat = Number(m[1]), lon = Number(m[2])
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) return null
+  return m[3] ? { lat, lon, alt: Math.round(Number(m[3])) } : { lat, lon }
+}
+
+// "2021-12-24T19:03:12-0500" (iPhone, hora local con zona) o creation_time en UTC.
+export function parseFecha(v?: string) {
+  if (!v) return null
+  const d = new Date(v.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'))
+  return Number.isNaN(d.getTime()) || d.getFullYear() < 1990 ? null : d.toISOString()
+}
 
 export async function probe(file: string): Promise<Probe> {
   const j = JSON.parse(await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file]))
@@ -27,7 +52,13 @@ export async function probe(file: string): Promise<Probe> {
   const a = j.streams?.find((s) => s.codec_type === 'audio')
   const rot = Math.abs(Number(v.side_data_list?.find((d) => d.rotation !== undefined)?.rotation ?? v.tags?.rotate ?? 0))
   const girado = rot === 90 || rot === 270
+  const t = Object.fromEntries(Object.entries({ ...(v.tags ?? {}), ...(j.format?.tags ?? {}) }).map(([k, val]) => [k.toLowerCase(), String(val)]))
+  const make = t['com.apple.quicktime.make'] ?? t.make
+  const model = t['com.apple.quicktime.model'] ?? t.model
   return {
+    takenAt: parseFecha(t['com.apple.quicktime.creationdate']) ?? parseFecha(t.creation_time),
+    location: parseISO6709(t['com.apple.quicktime.location.iso6709'] ?? t.location ?? t['location-eng']),
+    device: [make, model].filter(Boolean).join(' ') || null,
     duration: Number(j.format?.duration ?? v.duration ?? 0),
     width: girado ? v.height : v.width,
     height: girado ? v.width : v.height,

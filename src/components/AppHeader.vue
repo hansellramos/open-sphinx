@@ -4,16 +4,17 @@ import { useColorModes } from '@coreui/vue'
 import { useSidebarStore } from '@/stores/sidebar.js'
 import { useAuthStore } from '@/stores/auth'
 import { useSubidasStore } from '@/stores/subidas'
+import { usePrivacidadStore } from '@/stores/privacidad'
 
 const { colorMode, setColorMode } = useColorModes('boveda-theme')
 const sidebar = useSidebarStore()
 const auth = useAuthStore()
 const subidas = useSubidasStore()
 const router = useRouter()
+const priv = usePrivacidadStore()
 
 function bloquear() {
-  auth.bloquear()
-  router.push({ name: 'Entrar' })
+  auth.bloquear() // App.vue lleva a la pantalla de entrada
 }
 async function salir() {
   await auth.salir()
@@ -31,6 +32,10 @@ async function salir() {
         <CSpinner size="sm" class="me-1" /> Subiendo…
       </RouterLink>
       <CHeaderNav class="ms-auto d-flex align-items-center gap-1">
+        <div class="d-flex align-items-center gap-2 me-2" :title="priv.segundos ? `Se vuelve a difuminar tras ${priv.segundos} s sin actividad` : ''">
+          <CFormSwitch id="difuminar" :model-value="priv.difuminar" class="mb-0" @update:model-value="priv.set" />
+          <label for="difuminar" class="small text-body-secondary mb-0 d-none d-sm-inline">Difuminar</label>
+        </div>
         <CButton color="link" class="text-body-secondary" :title="colorMode === 'dark' ? 'Modo claro' : 'Modo oscuro'" @click="setColorMode(colorMode === 'dark' ? 'light' : 'dark')">
           <CIcon :icon="colorMode === 'dark' ? 'cil-sun' : 'cil-moon'" size="lg" />
         </CButton>

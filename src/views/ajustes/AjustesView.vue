@@ -7,6 +7,8 @@ import { errorPasskey } from '@/lib/webauthn'
 import PageHeader from '@/components/common/PageHeader.vue'
 import CodigoRecuperacion from '@/components/common/CodigoRecuperacion.vue'
 import { fecha } from '@/lib/formato'
+import { useBovedaStore } from '@/stores/boveda'
+import { usePrivacidadStore } from '@/stores/privacidad'
 
 const auth = useAuthStore()
 const toast = useToastStore()
@@ -16,23 +18,24 @@ const ocupado = ref(false)
 const codigo = ref('')
 const confirmarCodigo = ref(false)
 const borrar = ref(null)
-const etiquetas = ref([])
+const boveda = useBovedaStore()
+const priv = usePrivacidadStore()
 const borrarEtq = ref(null)
-const COLORES = ['primary', 'success', 'danger', 'warning', 'info', 'secondary', 'dark']
 
-const cargarEtiquetas = async () => (etiquetas.value = await api.get('/etiquetas'))
 async function guardarEtiqueta(e, cambios) {
   try {
-    Object.assign(e, await api.put(`/etiquetas/${e.id}`, cambios))
+    await boveda.editarEtiqueta(e.id, cambios)
   } catch (err) {
     toast.error(err)
-    cargarEtiquetas()
   }
 }
 async function confirmarBorrarEtq() {
-  await api.del(`/etiquetas/${borrarEtq.value.id}`).catch((e) => toast.error(e))
+  try {
+    await boveda.borrarEtiqueta(borrarEtq.value.id)
+  } catch (e) {
+    toast.error(e)
+  }
   borrarEtq.value = null
-  cargarEtiquetas()
 }
 
 const cargar = async () => (passkeys.value = await api.get('/auth/credenciales'))
@@ -70,7 +73,7 @@ async function generarCodigo() {
     toast.error(e)
   }
 }
-onMounted(() => Promise.all([cargar(), cargarEtiquetas()]))
+onMounted(() => Promise.all([cargar(), boveda.cargar()]).catch((e) => toast.error(e)))
 </script>
 
 <template>
@@ -111,14 +114,31 @@ onMounted(() => Promise.all([cargar(), cargarEtiquetas()]))
   </CCard>
 
   <CCard class="mb-4">
+    <CCardHeader class="fw-semibold">Privacidad</CCardHeader>
+    <CCardBody>
+      <p class="small text-body-secondary">Las miniaturas se difuminan al entrar y al bloquear. Si las muestras, vuelven a difuminarse tras este tiempo sin tocar nada (0 = nunca). Se guarda en este dispositivo.</p>
+      <div class="d-flex align-items-center gap-2" style="max-width: 20rem">
+        <CFormInput type="number" min="0" step="5" :model-value="priv.segundos" @change="priv.setSegundos($event.target.value)" />
+        <span class="small text-nowrap">segundos sin actividad</span>
+      </div>
+      <p class="small text-body-secondary mt-3">Al salir de la app (app switcher, otra app, pantalla apagada) se tapa todo y se pausa el video. Si vuelves después de este tiempo, se bloquea y pide la passkey (0 = siempre).</p>
+      <div class="d-flex align-items-center gap-2" style="max-width: 20rem">
+        <CFormInput type="number" min="0" step="15" :model-value="priv.autobloqueo" @change="priv.setAutobloqueo($event.target.value)" />
+        <span class="small text-nowrap">segundos fuera de la app</span>
+      </div>
+    </CCardBody>
+  </CCard>
+
+  <CCard class="mb-4">
     <CCardHeader class="fw-semibold">Etiquetas</CCardHeader>
     <CCardBody>
-      <p v-if="!etiquetas.length" class="small text-body-secondary mb-0">Aún no hay etiquetas. Se crean al etiquetar un video.</p>
-      <div v-for="e in etiquetas" :key="e.id" class="d-flex align-items-center gap-2 mb-2" style="max-width: 36rem">
+      <p class="small text-body-secondary">Van cifradas: el servidor no ve sus nombres ni a qué videos pertenecen.</p>
+      <p v-if="!boveda.etiquetas.length" class="small text-body-secondary mb-0">Aún no hay etiquetas. Se crean al etiquetar un video.</p>
+      <div v-for="e in boveda.etiquetas" :key="e.id" class="d-flex align-items-center gap-2 mb-2" style="max-width: 36rem">
         <CFormInput :model-value="e.name" size="sm" maxlength="40" @change="guardarEtiqueta(e, { name: $event.target.value })" />
         <div class="d-flex gap-1">
           <button
-            v-for="c in COLORES"
+            v-for="c in boveda.COLORES"
             :key="c"
             type="button"
             :class="['btn', 'btn-sm', `btn-${c}`, 'p-0', 'rounded-circle', { 'border border-2 border-white': e.color === c }]"

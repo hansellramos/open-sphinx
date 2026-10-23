@@ -1,17 +1,28 @@
-// La bóveda: clave pública (para que el worker cifre) y la privada envuelta con el código de recuperación.
+// La bóveda: clave pública (para que el worker cifre), la privada envuelta con el código de recuperación,
+// la clave de metadatos (sellada) y el catálogo cifrado (etiquetas). El servidor no puede leer nada de esto.
 import { Router } from 'express'
 import { writeFile } from 'node:fs/promises'
 import { prisma } from '../db.ts'
 import { bovedaJson } from '../lib/paths.ts'
 
-// Copia en disco de la clave pública + la privada envuelta con el código (por si se pierde la base).
-const guardarCopia = (publicKey, recoveryWrap) => writeFile(bovedaJson(), JSON.stringify({ v: 1, publicKey, recoveryWrap }, null, 1), { mode: 0o600 })
-
 const r = Router()
+const B64U = /^[A-Za-z0-9_-]+$/
+
+// Copia en disco (por si se pierde la base): con ella + videos/ + el código se recupera todo.
+async function guardarCopia() {
+  const v = await prisma.vault.findUnique({ where: { id: 1 } })
+  if (!v) return
+  const json = { v: 2, publicKey: v.publicKey, recoveryWrap: JSON.parse(v.recoveryWrap), metaKeyWrap: v.metaKeyWrap ? JSON.parse(v.metaKeyWrap) : null, catalog: v.catalog }
+  await writeFile(bovedaJson(), JSON.stringify(json, null, 1), { mode: 0o600 })
+}
 
 r.get('/', async (req, res) => {
   const v = await prisma.vault.findUnique({ where: { id: 1 } })
-  res.json(v ? { publicKey: v.publicKey, recoveryWrap: JSON.parse(v.recoveryWrap) } : null)
+  res.json(
+    v
+      ? { publicKey: v.publicKey, recoveryWrap: JSON.parse(v.recoveryWrap), metaKeyWrap: v.metaKeyWrap ? JSON.parse(v.metaKeyWrap) : null, catalog: v.catalog }
+      : null,
+  )
 })
 
 // Se crea una sola vez, justo después de registrar la primera passkey.
@@ -20,8 +31,8 @@ r.post('/', async (req, res) => {
   const { publicKey, recoveryWrap, prfWrap } = req.body ?? {}
   if (!publicKey || !recoveryWrap?.ct) return res.status(400).json({ error: 'Datos incompletos' })
   await prisma.vault.create({ data: { publicKey, recoveryWrap: JSON.stringify(recoveryWrap) } })
-  await guardarCopia(publicKey, recoveryWrap)
   if (prfWrap?.ct) await prisma.credential.update({ where: { id: req.session.credentialId }, data: { prfWrap: JSON.stringify(prfWrap) } })
+  await guardarCopia()
   res.json({ ok: true })
 })
 
@@ -29,8 +40,26 @@ r.post('/', async (req, res) => {
 r.put('/recuperacion', async (req, res) => {
   const { recoveryWrap } = req.body ?? {}
   if (!recoveryWrap?.ct) return res.status(400).json({ error: 'Datos incompletos' })
-  const v = await prisma.vault.update({ where: { id: 1 }, data: { recoveryWrap: JSON.stringify(recoveryWrap) } })
-  await guardarCopia(v.publicKey, recoveryWrap)
+  await prisma.vault.update({ where: { id: 1 }, data: { recoveryWrap: JSON.stringify(recoveryWrap) } })
+  await guardarCopia()
+  res.json({ ok: true })
+})
+
+// La clave de metadatos la genera el navegador una sola vez y la sella con la pública.
+r.put('/meta-key', async (req, res) => {
+  const w = req.body?.metaKeyWrap
+  if (!w?.epk || !w?.iv || !w?.ct) return res.status(400).json({ error: 'Datos incompletos' })
+  const { count } = await prisma.vault.updateMany({ where: { id: 1, metaKeyWrap: null }, data: { metaKeyWrap: JSON.stringify(w) } })
+  if (!count) return res.status(409).json({ error: 'La clave de metadatos ya existe' })
+  await guardarCopia()
+  res.json({ ok: true })
+})
+
+r.put('/catalogo', async (req, res) => {
+  const catalog = String(req.body?.catalog ?? '')
+  if (!B64U.test(catalog) || catalog.length > 2_000_000) return res.status(400).json({ error: 'Catálogo no válido' })
+  await prisma.vault.update({ where: { id: 1 }, data: { catalog } })
+  await guardarCopia()
   res.json({ ok: true })
 })
 

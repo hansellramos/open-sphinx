@@ -1,7 +1,7 @@
 <script setup>
 import { RouterLink } from 'vue-router'
 import icon from '@/assets/brand/icon.svg'
-import { AppSidebarNav } from '@/components/AppSidebarNav.js'
+import AppSidebarNav from '@/components/AppSidebarNav.vue'
 import { useSidebarStore } from '@/stores/sidebar.js'
 
 const sidebar = useSidebarStore()

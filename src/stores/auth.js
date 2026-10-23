@@ -88,8 +88,11 @@ export const useAuthStore = defineStore('auth', () => {
     return codigo
   }
 
+  // Abre una clave sellada con la pública (la de un video o la de metadatos).
+  const abrirSellado = (sealed) => c.openFileKey(privateKey.value, sealed)
+
   async function claveDe(video) {
-    if (!fileKeys.has(video.id)) fileKeys.set(video.id, await c.openFileKey(privateKey.value, video.keyWrap))
+    if (!fileKeys.has(video.id)) fileKeys.set(video.id, await abrirSellado(video.keyWrap))
     return fileKeys.get(video.id)
   }
 
@@ -106,5 +109,5 @@ export const useAuthStore = defineStore('auth', () => {
     estado.value = { ...estado.value, sesion: false }
   }
 
-  return { estado, desbloqueada, cargar, entrar, conRecuperacion, registrarPasskey, crearBoveda, agregarPasskey, nuevoCodigo, claveDe, bloquear, salir }
+  return { estado, desbloqueada, cargar, entrar, conRecuperacion, registrarPasskey, crearBoveda, agregarPasskey, nuevoCodigo, abrirSellado, claveDe, bloquear, salir }
 })

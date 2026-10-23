@@ -6,7 +6,7 @@ import path from 'node:path'
 import { prisma } from './db.ts'
 import { borrarSubida, paths, videoDir } from './lib/paths.ts'
 import { miniatura, probe, segmentar } from './lib/media.ts'
-import { encryptBlob, newFileKey, sealFileKey } from '../shared/crypto.js'
+import { encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
 
 const ESPERA_MS = 5_000
 const MAX_INTENTOS = 3
@@ -37,8 +37,25 @@ export async function procesar(videoId: string) {
     await copyFile(path.join(work, 'index.m3u8'), path.join(destinoTmp, 'index.m3u8'))
     const keyWrap = await sealFileKey(vault.publicKey, fk.raw)
     fk.raw.fill(0)
+    // Metadatos (incluida la fecha/ubicación/equipo del iPhone) cifrados con la clave del video.
+    const nombre = video.originalName ?? 'video'
+    const meta = await encryptJSON(fk.key, {
+      v: 1,
+      title: nombre.replace(/\.[^.]+$/, ''),
+      originalName: nombre,
+      takenAt: p.takenAt,
+      location: p.location,
+      device: p.device,
+      duration: p.duration,
+      width: p.width,
+      height: p.height,
+      videoCodec: p.videoCodec,
+      tags: [],
+      favorite: false,
+    })
+    console.log(`[worker] metadatos: fecha ${p.takenAt ? 'sí' : 'no'}, ubicación ${p.location ? 'sí' : 'no'}, equipo ${p.device ? 'sí' : 'no'}`)
     // La carpeta queda autocontenida: con ella + el código de recuperación se puede abrir aunque se pierda la base.
-    await writeFile(path.join(destinoTmp, 'key.json'), JSON.stringify({ v: 1, title: video.title, originalName: video.originalName, keyWrap }))
+    await writeFile(path.join(destinoTmp, 'key.json'), JSON.stringify({ v: 2, keyWrap, meta }))
 
     await rm(videoDir(video.id), { recursive: true, force: true })
     await rename(destinoTmp, videoDir(video.id))
@@ -47,10 +64,10 @@ export async function procesar(videoId: string) {
       data: {
         status: 'listo',
         error: null,
-        duration: p.duration,
-        width: p.width,
-        height: p.height,
-        videoCodec: p.videoCodec,
+        meta,
+        title: null,
+        originalName: null,
+        mime: null,
         segments: archivos.filter((f) => f.startsWith('seg_')).length,
         keyWrap: JSON.stringify(keyWrap),
         readyAt: new Date(),

@@ -1,13 +1,11 @@
 // Videos: subida reanudable (tus), lista, archivos cifrados y borrado.
 import { Router } from 'express'
-import { rm } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Server as TusServer } from '@tus/server'
 import { FileStore } from '@tus/file-store'
 import { prisma } from '../db.ts'
 import { ARCHIVO_VALIDO, borrarSubida, paths, videoDir } from '../lib/paths.ts'
-
-export const normalizarEtiqueta = (n) => String(n ?? '').trim().replace(/\s+/g, ' ').slice(0, 40)
 
 const MAX_BYTES = 20 * 1024 ** 3 // 20 GB
 
@@ -18,18 +16,17 @@ const tus = new TusServer({
   respectForwardedHeaders: true,
   relativeLocation: true, // detrás de Tailscale Serve: evita URLs http:// absolutas
   async onUploadFinish(req, upload) {
+    // El nombre del archivo queda en texto plano solo hasta que el worker lo mete en los metadatos cifrados.
     const name = upload.metadata?.filename || 'video'
     const video = await prisma.video.create({
       data: {
-        title: (upload.metadata?.title || name.replace(/\.[^.]+$/, '')).slice(0, 200),
         originalName: name.slice(0, 255),
-        mime: upload.metadata?.filetype || null,
         size: upload.size ?? upload.offset,
         uploadId: upload.id,
         jobs: { create: { type: 'procesar' } },
       },
     })
-    console.log(`[subida] ${name} (${((upload.size ?? 0) / 1e6).toFixed(1)} MB) → video ${video.id} en cola`)
+    console.log(`[subida] ${((upload.size ?? 0) / 1e6).toFixed(1)} MB → video ${video.id} en cola`)
     return {}
   },
 })
@@ -39,21 +36,19 @@ export const subidas = (req, res) => tus.handle(req, res)
 
 const r = Router()
 
+// Solo lo cifrado + estado. Los campos "legado" (MVP sin cifrar) se mandan mientras el navegador no los migre.
 const publico = (v) => ({
   id: v.id,
-  title: v.title,
-  originalName: v.originalName,
   size: v.size,
   status: v.status,
   error: v.error,
-  duration: v.duration,
-  width: v.width,
-  height: v.height,
-  videoCodec: v.videoCodec,
   keyWrap: v.keyWrap ? JSON.parse(v.keyWrap) : null,
-  tags: (v.tags ?? []).map((t) => ({ id: t.id, name: t.name, color: t.color })).sort((a, b) => a.name.localeCompare(b.name, 'es')),
+  meta: v.meta,
   createdAt: v.createdAt,
   readyAt: v.readyAt,
+  ...(v.title || v.tags?.length
+    ? { legado: { title: v.title, originalName: v.originalName, duration: v.duration, width: v.width, height: v.height, videoCodec: v.videoCodec, tags: (v.tags ?? []).map((t) => ({ name: t.name, color: t.color })) } }
+    : {}),
 })
 
 r.get('/', async (req, res) => {
@@ -67,20 +62,19 @@ r.get('/:id', async (req, res) => {
   res.json(publico(v))
 })
 
-r.put('/:id', async (req, res) => {
-  const title = String(req.body?.title ?? '').trim().slice(0, 200)
-  if (!title) return res.status(400).json({ error: 'El título no puede estar vacío' })
-  res.json(publico(await prisma.video.update({ where: { id: req.params.id }, data: { title }, include: { tags: true } })))
-})
-
-// Reemplaza las etiquetas del video por las de la lista (crea las que no existan).
-r.put('/:id/etiquetas', async (req, res) => {
-  const nombres = [...new Set((Array.isArray(req.body?.nombres) ? req.body.nombres : []).map(normalizarEtiqueta).filter(Boolean))].slice(0, 30)
+// Guarda los metadatos (ya cifrados por el navegador). También vacía los campos legado y actualiza key.json.
+r.put('/:id/meta', async (req, res) => {
+  const meta = String(req.body?.meta ?? '')
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(meta) || meta.length > 200_000) return res.status(400).json({ error: 'Metadatos no válidos' })
   const v = await prisma.video.update({
     where: { id: req.params.id },
-    data: { tags: { set: [], connectOrCreate: nombres.map((name) => ({ where: { name }, create: { name } })) } },
+    data: { meta, title: null, originalName: null, mime: null, duration: null, width: null, height: null, videoCodec: null, tags: { set: [] } },
     include: { tags: true },
   })
+  if (v.keyWrap) {
+    const kj = path.join(videoDir(v.id), 'key.json')
+    await writeFile(kj, JSON.stringify({ v: 2, keyWrap: JSON.parse(v.keyWrap), meta })).catch(() => {})
+  }
   res.json(publico(v))
 })
 

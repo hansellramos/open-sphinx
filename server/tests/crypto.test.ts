@@ -30,3 +30,13 @@ test('sellar con la pública y abrir con la privada', async () => {
   const otra = await c.importPrivateKey((await c.generateVaultKeys()).privatePkcs8)
   await assert.rejects(c.openFileKey(otra, sealed))
 })
+
+test('JSON cifrado: ida y vuelta, y la clave abierta sirve para re-cifrar', async () => {
+  const { publicKey, privatePkcs8 } = await c.generateVaultKeys()
+  const fk = await c.newFileKey()
+  const meta = { title: 'Ñandú 🎥', loc: { lat: 4.65, lon: -74.08 } }
+  const blob = await c.encryptJSON(fk.key, meta)
+  const abierta = await c.openFileKey(await c.importPrivateKey(privatePkcs8), await c.sealFileKey(publicKey, fk.raw))
+  assert.deepEqual(await c.decryptJSON(abierta, blob), meta)
+  assert.deepEqual(await c.decryptJSON(fk.key, await c.encryptJSON(abierta, { a: 1 })), { a: 1 })
+})

@@ -1,35 +1,28 @@
 <script setup>
 // Reproductor: hls.js baja cada fragmento cifrado, este loader lo descifra y se lo pasa al video.
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Hls from 'hls.js'
-import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import { decryptBlob } from '@shared/crypto.js'
-import { duracion, fecha, tamano } from '@/lib/formato'
+import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
+import { decryptBlob } from '@shared/crypto.js'
+import { duracion, fechaHora, tamano } from '@/lib/formato'
 import EtiquetasEditor from '@/components/videos/EtiquetasEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const video = ref(null)
+const boveda = useBovedaStore()
+const toast = useToastStore()
 const el = ref(null)
 const error = ref('')
-const toast = useToastStore()
-const etiquetas = ref([])
-const nombres = ref([])
+const editando = ref(false)
+const titulo = ref('')
 let hls = null
 
-async function guardarEtiquetas(lista) {
-  nombres.value = lista
-  try {
-    video.value = await api.put(`/videos/${video.value.id}/etiquetas`, { nombres: lista })
-    etiquetas.value = await api.get('/etiquetas')
-  } catch (e) {
-    toast.error(e)
-  }
-}
+const video = computed(() => boveda.videos.find((v) => v.id === route.params.id))
+const m = computed(() => video.value?.m)
 
 function loaderDescifrador(key) {
   const Base = Hls.DefaultConfig.loader
@@ -49,11 +42,25 @@ function loaderDescifrador(key) {
   }
 }
 
+const accion = (fn) => async (...a) => {
+  try {
+    await fn(...a)
+  } catch (e) {
+    toast.error(e)
+  }
+}
+const guardarTitulo = accion(async () => {
+  await boveda.renombrar(video.value, titulo.value)
+  editando.value = false
+})
+const guardarEtiquetas = accion((nombres) => boveda.asignarEtiquetas(video.value, nombres))
+const favorito = accion(() => boveda.favorito(video.value))
+
 onMounted(async () => {
   try {
-    ;[video.value, etiquetas.value] = await Promise.all([api.get(`/videos/${route.params.id}`), api.get('/etiquetas')])
-    nombres.value = video.value.tags.map((g) => g.name)
-    if (video.value.status !== 'listo') return (error.value = 'El video todavía se está procesando')
+    await boveda.cargar()
+    if (!video.value) return (error.value = 'Video no encontrado')
+    if (!m.value) return (error.value = 'El video todavía se está procesando')
     if (!Hls.isSupported()) return (error.value = 'Este navegador no soporta el reproductor (en iPhone se necesita iOS 17.1 o superior)')
     const key = await auth.claveDe(video.value)
     hls = new Hls({ loader: loaderDescifrador(key), maxBufferLength: 30, maxMaxBufferLength: 60 })
@@ -71,16 +78,39 @@ onBeforeUnmount(() => hls?.destroy())
 
 <template>
   <div class="d-flex align-items-center gap-2 mb-3">
-    <CButton color="secondary" variant="ghost" @click="router.push('/videos')"><CIcon icon="cil-arrow-left" /></CButton>
-    <h1 class="page-title text-truncate h4 mb-0">{{ video?.title }}</h1>
+    <CButton color="secondary" variant="ghost" @click="router.back()"><CIcon icon="cil-arrow-left" /></CButton>
+    <template v-if="m">
+      <form v-if="editando" class="d-flex gap-2 flex-grow-1" @submit.prevent="guardarTitulo">
+        <CFormInput v-model="titulo" maxlength="200" autofocus />
+        <CButton type="submit" color="primary">Guardar</CButton>
+        <CButton color="secondary" variant="ghost" @click="editando = false">Cancelar</CButton>
+      </form>
+      <h1 v-else class="page-title text-truncate h4 mb-0" role="button" title="Renombrar" @click="titulo = m.title; editando = true">{{ m.title }}</h1>
+      <CButton v-if="!editando" color="link" class="ms-auto" :class="m.favorite ? 'text-warning' : 'text-body-secondary'" :title="m.favorite ? 'Quitar de favoritos' : 'Marcar como favorito'" @click="favorito">
+        <CIcon icon="cil-star" size="xl" />
+      </CButton>
+    </template>
   </div>
   <CAlert v-if="error" color="danger">{{ error }}</CAlert>
   <!-- disableremoteplayback: requerido por ManagedMediaSource en iPhone -->
   <video v-show="!error" ref="el" class="player" controls playsinline autoplay disableremoteplayback></video>
-  <div v-if="video" class="mt-3" style="max-width: 40rem">
-    <EtiquetasEditor :model-value="nombres" :sugerencias="etiquetas" @update:model-value="guardarEtiquetas" />
-  </div>
-  <div v-if="video" class="small text-body-secondary mt-2 mb-4">
-    {{ duracion(video.duration) }} · {{ video.width }}×{{ video.height }} · {{ video.videoCodec?.toUpperCase() }} · {{ tamano(video.size) }} · {{ video.originalName }} · subido {{ fecha(video.createdAt) }}
-  </div>
+
+  <CRow v-if="m" class="mt-3 mb-4 g-3">
+    <CCol md="7">
+      <div class="small text-body-secondary mb-1">Etiquetas</div>
+      <EtiquetasEditor :model-value="boveda.nombresDe(video)" :sugerencias="boveda.etiquetas" @update:model-value="guardarEtiquetas" />
+    </CCol>
+    <CCol md="5" class="small">
+      <div class="mb-1"><CIcon icon="cil-calendar" class="me-2 text-body-secondary" />{{ m.takenAt ? `Grabado el ${fechaHora(m.takenAt)}` : `Subido el ${fechaHora(video.createdAt)} (sin fecha de grabación)` }}</div>
+      <div class="mb-1">
+        <CIcon icon="cil-location-pin" class="me-2 text-body-secondary" />
+        <RouterLink v-if="m.location" :to="`/mapa?v=${video.id}`">{{ m.location.lat.toFixed(5) }}, {{ m.location.lon.toFixed(5) }} · ver en el mapa</RouterLink>
+        <span v-else class="text-body-secondary">Sin ubicación</span>
+      </div>
+      <div v-if="m.device" class="mb-1"><CIcon icon="cil-devices" class="me-2 text-body-secondary" />{{ m.device }}</div>
+      <div class="text-body-secondary">
+        {{ duracion(m.duration) }} · {{ m.width }}×{{ m.height }} · {{ m.videoCodec?.toUpperCase() }} · {{ tamano(video.size) }} · {{ m.originalName }}
+      </div>
+    </CCol>
+  </CRow>
 </template>

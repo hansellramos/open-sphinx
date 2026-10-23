@@ -33,33 +33,38 @@ model Vault {
   id           Int      @id @default(1)
   publicKey    String // base64url raw X25519
   recoveryWrap String // JSON {salt, iv, ct}
+  metaKeyWrap  String? // JSON {epk, iv, ct}: clave de metadatos de la bóveda, sellada con la pública
+  catalog      String? // catálogo cifrado con la clave de metadatos (etiquetas, colores…)
   createdAt    DateTime @default(now())
 }
 
 // ---------------- VIDEOS ----------------
 
+// Todo lo descriptivo (título, fecha, ubicación, etiquetas, favorito…) va en `meta`, cifrado con la
+// clave del video. Las columnas marcadas "legado" son del MVP (sin cifrar) y se vacían al migrar.
 model Video {
   id           String    @id @default(uuid())
-  title        String
-  originalName String
-  mime         String?
+  meta         String? // base64url [iv][ct] — JSON cifrado con la clave del video
+  title        String? // legado
+  originalName String? // legado
+  mime         String? // legado
   size         Int       @default(0)
   uploadId     String?   @unique // id de la subida tus (archivo temporal sin cifrar)
   status       String    @default("en_cola") // en_cola | procesando | listo | error
   error        String?
-  duration     Float?
-  width        Int?
-  height       Int?
-  videoCodec   String?
+  duration     Float? // legado
+  width        Int? // legado
+  height       Int? // legado
+  videoCodec   String? // legado
   segments     Int?
   keyWrap      String? // JSON {epk, iv, ct}: clave del video sellada con la clave pública
   createdAt    DateTime  @default(now())
   readyAt      DateTime?
   jobs         Job[]
-  tags         Tag[]
+  tags         Tag[] // legado
 }
 
-// Etiquetas (MVP: sin cifrar, para poder filtrar y luego compartir por etiqueta).
+// Legado (MVP sin cifrar): se migra al catálogo cifrado y se borra.
 model Tag {
   id        Int      @id @default(autoincrement())
   name      String   @unique
