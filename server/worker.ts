@@ -6,7 +6,7 @@ import { mkdir, readFile, readdir, rename, rm, stat, writeFile, copyFile } from 
 import path from 'node:path'
 import { prisma } from './db.ts'
 import { borrarSubida, paths, videoDir } from './lib/paths.ts'
-import { cifrarEnPartes, miniatura, prepararImagen, probe, segmentar, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
+import { cifrarEnPartes, miniatura, prepararImagen, probe, segmentar, sha256, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
 import { encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
 
 const ESPERA_MS = 5_000
@@ -29,6 +29,7 @@ export async function procesar(videoId: string) {
   await mkdir(destinoTmp, { recursive: true })
   try {
     // Qué es: un video que no se puede reproducir o una imagen que no se puede leer se guardan como archivo.
+    const huella = await sha256(input)
     let tipo = tipoDe(nombre, video.mime)
     let p: Probe | null = null
     let img: InfoImagen | null = null
@@ -66,7 +67,11 @@ export async function procesar(videoId: string) {
     const keyWrap = await sealFileKey(vault.publicKey, fk.raw)
     fk.raw.fill(0)
     // Metadatos (incluido el tipo y la fecha/ubicación/equipo) cifrados con la clave del elemento.
-    const comunes = { v: 1, kind: tipo, title: nombre.replace(/\.[^.]+$/, '') || nombre, originalName: nombre, mime: video.mime || null, tags: [], favorite: false }
+    // sellado: lo que el navegador mandó sellado al subir (etiquetas); lo aplica el navegador al abrirlo.
+    const comunes = {
+      v: 1, kind: tipo, title: nombre.replace(/\.[^.]+$/, '') || nombre, originalName: nombre, mime: video.mime || null,
+      sha256: huella, tags: [], favorite: false, ...(video.extra && { sellado: JSON.parse(video.extra) }),
+    }
     const datos = p
       ? { takenAt: p.takenAt, location: p.location, device: p.device, duration: p.duration, width: p.width, height: p.height, videoCodec: p.videoCodec }
       : img
@@ -88,6 +93,7 @@ export async function procesar(videoId: string) {
         title: null,
         originalName: null,
         mime: null,
+        extra: null,
         segments: p ? archivos.filter((f) => f.startsWith('seg_')).length : null,
         keyWrap: JSON.stringify(keyWrap),
         readyAt: new Date(),

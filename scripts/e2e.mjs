@@ -128,10 +128,13 @@ try {
 
   // Fotos y archivos
   await page.goto(`${base}/#/subir`)
+  const campoSubir = page.getByPlaceholder('Escribe y Enter…')
+  await campoSubir.fill('WhatsApp'); await campoSubir.press('Enter')
   await page.locator('input[type=file]').setInputFiles([foto, notas])
   await page.waitForFunction(() => [...document.querySelectorAll('.card')].filter((c) => c.innerText.includes('Subido · en cola')).length === 2, null, { timeout: 60000 })
   await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
   await page.waitForFunction(() => document.querySelectorAll('.video-card').length === 2, null, { timeout: 60000 })
+  await page.locator('.video-card .badge', { hasText: 'WhatsApp' }).waitFor({ timeout: 30000 })
   await page.getByRole('button', { name: 'Fotos', exact: true }).click()
   if ((await page.locator('.video-card').count()) !== 1) throw new Error('el filtro Fotos no deja solo la foto')
   await page.locator('.video-card .thumb img').waitFor()
@@ -141,7 +144,12 @@ try {
   if (!(await page.locator('img.foto').evaluate((i) => i.complete && i.naturalWidth === 1200))) throw new Error('la foto no se descifró')
   await page.getByText('Tomada el').waitFor()
   await page.getByText('Apple iPhone 15 Pro').waitFor()
-  paso('foto: miniatura y foto descifradas, filtro Fotos, fecha/equipo del EXIF')
+  paso('foto: miniatura y foto descifradas, filtro Fotos, fecha/equipo del EXIF, etiqueta elegida al subir')
+  await page.goto(`${base}/#/subir`)
+  await page.locator('input[type=file]').setInputFiles([foto])
+  await page.getByText('Ya está en la bóveda:').waitFor({ timeout: 30000 })
+  await page.getByRole('link', { name: 'IMG_2000' }).waitFor()
+  paso('no vuelve a subir una foto que ya está (huella cifrada)')
   await page.locator('.sidebar a', { hasText: 'Archivos' }).click()
   await page.locator('.archivo-fila', { hasText: 'notas-secretas' }).click()
   await page.locator('pre.visor-texto', { hasText: 'Contenido confidencial' }).waitFor()
@@ -152,7 +160,7 @@ try {
   await page.locator('.sidebar a', { hasText: 'Mapa' }).click()
   await page.getByText('2 de 2 fotos y videos tienen ubicación').waitFor()
   const crudo2 = await page.evaluate(async () => JSON.stringify(await (await fetch('/api/videos')).json()))
-  for (const x of ['notas', 'IMG_2000', 'iPhone', 'image/', 'text/', '6.24', 'imagen', 'archivo']) if (crudo2.includes(x)) throw new Error(`el servidor ve "${x}" en claro`)
+  for (const x of ['notas', 'IMG_2000', 'iPhone', 'image/', 'text/', '6.24', 'imagen', 'archivo', 'WhatsApp', 'sha256']) if (crudo2.includes(x)) throw new Error(`el servidor ve "${x}" en claro`)
   paso('la foto aparece en el mapa; el servidor no ve nombres, tipos ni ubicación')
 
   // Pegar: imagen con el botón (portapapeles), archivo con el evento paste (como Safari al pegar desde Archivos) y texto → nota.

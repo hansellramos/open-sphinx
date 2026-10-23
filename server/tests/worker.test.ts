@@ -2,6 +2,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, readdirSync, existsSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -137,7 +138,8 @@ test('procesa un archivo cualquiera en partes, sin poder reordenarlas', async ()
   for (let i = 0; i < datos.length; i += 4096) datos.writeUInt32BE(i, i)
   writeFileSync(input, datos)
   writeFileSync(`${input}.json`, '{}')
-  const v = await prisma.video.create({ data: { originalName: 'contrato.pdf', mime: 'application/pdf', uploadId } })
+  const sellado = { k: { epk: 'x', iv: 'y', ct: 'z' }, d: 'cifrado-por-el-navegador' }
+  const v = await prisma.video.create({ data: { originalName: 'contrato.pdf', mime: 'application/pdf', uploadId, extra: JSON.stringify(sellado) } })
 
   await procesar(v.id)
 
@@ -146,6 +148,9 @@ test('procesa un archivo cualquiera en partes, sin poder reordenarlas', async ()
   assert.equal(meta.mime, 'application/pdf')
   assert.equal(meta.parts, 3)
   assert.ok((await original(key, vdir, 3)).equals(datos))
+  assert.equal(meta.sha256, createHash('sha256').update(datos).digest('hex'), 'huella del original, cifrada')
+  assert.deepEqual(meta.sellado, sellado, 'lo sellado al subir pasa a los metadatos')
+  assert.equal((await prisma.video.findUniqueOrThrow({ where: { id: v.id } })).extra, null)
   await assert.rejects(c.decryptBlob(key, readFileSync(path.join(vdir, 'orig_00001.enc')), c.aadParte(0, 3)), 'una parte no sirve en otra posición')
   assert.ok(!existsSync(input))
 })

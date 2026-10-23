@@ -6,12 +6,15 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSubidasStore } from '@/stores/subidas'
 import { useToastStore } from '@/stores/toast'
+import { useBovedaStore } from '@/stores/boveda'
+import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { tamano } from '@/lib/formato'
 
 const router = useRouter()
 const subidas = useSubidasStore()
 const toast = useToastStore()
+const boveda = useBovedaStore()
 const input = ref(null)
 const encima = ref(false)
 const nota = ref(null) // { nombre, texto } cuando lo pegado es solo texto
@@ -74,14 +77,19 @@ function guardarNota() {
 onMounted(() => document.addEventListener('paste', alPegar))
 onBeforeUnmount(() => document.removeEventListener('paste', alPegar))
 
-const COLOR = { esperando: 'secondary', subiendo: 'primary', listo: 'success', error: 'danger' }
+const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', listo: 'success', error: 'danger', duplicado: 'warning' }
 </script>
 
 <template>
   <PageHeader title="Subir" subtitle="Se suben por la VPN; la NAS los cifra y borra lo que llegó sin cifrar.">
-    <CButton v-if="subidas.items.some((i) => i.estado === 'listo')" color="secondary" variant="outline" @click="subidas.limpiarListos()">Limpiar terminados</CButton>
+    <CButton v-if="subidas.items.some((i) => i.estado === 'listo' || i.estado === 'duplicado')" color="secondary" variant="outline" @click="subidas.limpiarListos()">Limpiar terminados</CButton>
     <CButton color="primary" variant="outline" @click="router.push('/galeria')">Ir a la galería</CButton>
   </PageHeader>
+
+  <div class="mb-3">
+    <div class="small text-body-secondary mb-1">Etiquetas para lo que subas (opcional)</div>
+    <EtiquetasEditor v-model="subidas.etiquetas" :sugerencias="boveda.etiquetas" />
+  </div>
 
   <div
     class="dropzone mb-4"
@@ -120,11 +128,18 @@ const COLOR = { esperando: 'secondary', subiendo: 'primary', listo: 'success', e
         <div class="flex-grow-1 text-truncate fw-semibold" :title="it.nombre">{{ it.nombre }}</div>
         <span class="small text-body-secondary text-nowrap">{{ tamano(it.tam) }}</span>
         <CButton v-if="it.estado === 'error'" color="link" size="sm" @click="subidas.reintentar(it)">Reintentar</CButton>
-        <CButton v-if="it.estado !== 'listo'" color="link" size="sm" class="text-danger" @click="subidas.cancelar(it)">Cancelar</CButton>
+        <CButton v-if="it.estado === 'duplicado'" color="link" size="sm" @click="subidas.subirIgual(it)">Subir igual</CButton>
+        <CButton v-if="it.estado !== 'listo'" color="link" size="sm" class="text-danger" @click="subidas.cancelar(it)">{{ it.estado === 'duplicado' ? 'Quitar' : 'Cancelar' }}</CButton>
       </div>
       <CProgress :value="it.progreso" :color="COLOR[it.estado]" height="6" />
-      <div class="small mt-1" :class="it.estado === 'error' ? 'text-danger' : 'text-body-secondary'">
-        {{ it.estado === 'subiendo' ? `${it.progreso}%` : it.estado === 'listo' ? 'Subido · en cola para cifrar' : it.estado === 'error' ? it.error : 'Esperando' }}
+      <div class="small mt-1 d-flex flex-wrap gap-1 align-items-center" :class="it.estado === 'error' ? 'text-danger' : 'text-body-secondary'">
+        <template v-if="it.estado === 'duplicado'">
+          Ya está en la bóveda:
+          <RouterLink v-if="it.igual?.id" :to="`/ver/${it.igual.id}`">{{ it.igual.title }}</RouterLink>
+          <span v-else>{{ it.igual?.title }} (en esta misma subida)</span>
+        </template>
+        <template v-else>{{ { revisando: `Revisando si ya está… ${it.progreso}%`, subiendo: `${it.progreso}%`, listo: 'Subido · en cola para cifrar', error: it.error }[it.estado] ?? 'Esperando' }}</template>
+        <CBadge v-for="t in it.tags" :key="t" color="secondary" class="fw-normal ms-1">{{ t }}</CBadge>
       </div>
     </CCardBody>
   </CCard>

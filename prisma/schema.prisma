@@ -58,6 +58,7 @@ model Video {
   videoCodec   String? // legado
   segments     Int?
   keyWrap      String? // JSON {epk, iv, ct}: clave del video sellada con la clave pública
+  extra        String? // JSON sellado por el navegador al subir (etiquetas); el worker lo mete en meta y lo borra
   createdAt    DateTime  @default(now())
   readyAt      DateTime?
   jobs         Job[]

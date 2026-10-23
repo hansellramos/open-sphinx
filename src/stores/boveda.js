@@ -33,6 +33,8 @@ export const useBovedaStore = defineStore('boveda', () => {
       .map((t) => ({ ...t, total: listos.value.filter((v) => v.m.tags?.includes(t.id)).length }))
       .sort((a, b) => a.name.localeCompare(b.name, 'es')),
   )
+  // Huella (sha256 del original) → elemento, para no subir duplicados. Solo lo procesado desde que existe.
+  const huellas = computed(() => new Map(listos.value.filter((v) => v.m.sha256).map((v) => [v.m.sha256, v])))
   const etiqueta = (id) => catalogo.value.tags.find((t) => t.id === id)
   const fechaDe = (v) => v.m?.takenAt ?? v.createdAt
 
@@ -70,6 +72,7 @@ export const useBovedaStore = defineStore('boveda', () => {
       const prev = new Map(items.value.map((v) => [v.id, v]))
       items.value = await Promise.all(lista.map((v) => descifrar(v, prev.get(v.id))))
       await migrarLegado(lista)
+      await aplicarSellados()
       cargado.value = true
       programarSondeo()
     })().finally(() => (cargando = null))
@@ -106,6 +109,27 @@ export const useBovedaStore = defineStore('boveda', () => {
     await api.del('/etiquetas/legado')
   }
 
+  // Etiquetas elegidas al subir: llegan selladas con la pública dentro de los metadatos (el worker no
+  // puede leerlas). Aquí se abren, se agregan y se quita lo sellado.
+  async function aplicarSellados() {
+    for (const v of listos.value.filter((x) => x.m.sellado)) {
+      try {
+        const extra = await decryptJSON(await auth.abrirSellado(v.m.sellado.k), v.m.sellado.d)
+        const nuevas = (extra.tags ?? []).filter((id) => etiqueta(id))
+        const { sellado, ...m } = v.m
+        await guardarMeta(v, { ...m, tags: [...new Set([...(m.tags ?? []), ...nuevas])] }, true)
+      } catch (e) {
+        console.warn('No se pudieron aplicar las etiquetas de la subida', e)
+      }
+    }
+  }
+
+  // Sella algo para que solo la bóveda lo abra (como la clave de un archivo): { k: clave sellada, d: JSON cifrado }.
+  async function sellar(obj) {
+    const fk = await newFileKey()
+    return { k: await sealFileKey(publicKey, fk.raw), d: await encryptJSON(fk.key, obj) }
+  }
+
   // ---------- escritura (todo se cifra aquí antes de enviarse) ----------
 
   async function guardarMeta(v, cambios, reemplazar = false) {
@@ -133,6 +157,13 @@ export const useBovedaStore = defineStore('boveda', () => {
       return t.id
     })
     return { ids: [...new Set(ids)], nuevos }
+  }
+
+  // Ids de etiquetas por nombre, creando (y guardando) las nuevas.
+  async function etiquetasPara(nombres) {
+    const { ids, nuevos } = idsDe(nombres)
+    if (nuevos.length) await guardarCatalogo()
+    return ids
   }
 
   async function asignarEtiquetas(v, nombres) {
@@ -233,7 +264,7 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
-    tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
+    huellas, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     favorito, renombrar, borrar, thumbUrl, publicKey: () => publicKey,
   }
 })

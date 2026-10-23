@@ -1,5 +1,7 @@
 // ffprobe/ffmpeg/libheif. Cortar videos en fragmentos es con -c copy (sin recodificar): casi solo disco, poca CPU.
 import { spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { open, rm } from 'node:fs/promises'
 import path from 'node:path'
 import exifr from 'exifr'
@@ -194,4 +196,11 @@ export async function cifrarEnPartes(input: string, outDir: string, key: CryptoK
     await fh.close()
   }
   return total
+}
+
+// Huella del original (para detectar duplicados). Va dentro de los metadatos cifrados, nunca en claro.
+export async function sha256(file: string) {
+  const h = createHash('sha256')
+  for await (const chunk of createReadStream(file)) h.update(chunk)
+  return h.digest('hex')
 }

@@ -19,10 +19,19 @@ const tus = new TusServer({
   async onUploadFinish(req, upload) {
     // El nombre del archivo queda en texto plano solo hasta que el worker lo mete en los metadatos cifrados.
     const name = upload.metadata?.filename || 'archivo'
+    // extra: etiquetas elegidas al subir, selladas por el navegador con la pública (el servidor no las lee).
+    let extra = upload.metadata?.extra || null
+    try {
+      const x = extra && JSON.parse(extra)
+      if (!x?.k?.epk || typeof x.d !== 'string' || extra.length > 8000) extra = null
+    } catch {
+      extra = null
+    }
     const video = await prisma.video.create({
       data: {
         originalName: name.slice(0, 255),
         mime: upload.metadata?.filetype?.slice(0, 100) || null,
+        extra,
         size: upload.size ?? upload.offset,
         uploadId: upload.id,
         jobs: { create: { type: 'procesar' } },
