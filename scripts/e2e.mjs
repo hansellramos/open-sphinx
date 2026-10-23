@@ -154,6 +154,35 @@ try {
   const crudo2 = await page.evaluate(async () => JSON.stringify(await (await fetch('/api/videos')).json()))
   for (const x of ['notas', 'IMG_2000', 'iPhone', 'image/', 'text/', '6.24', 'imagen', 'archivo']) if (crudo2.includes(x)) throw new Error(`el servidor ve "${x}" en claro`)
   paso('la foto aparece en el mapa; el servidor no ve nombres, tipos ni ubicación')
+
+  // Pegar: imagen con el botón (portapapeles), archivo con el evento paste (como Safari al pegar desde Archivos) y texto → nota.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base })
+  await page.goto(`${base}/#/subir`)
+  await page.evaluate(async () => {
+    const c = Object.assign(document.createElement('canvas'), { width: 40, height: 30 })
+    c.getContext('2d').fillRect(0, 0, 40, 30)
+    const png = await new Promise((r) => c.toBlob(r, 'image/png'))
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
+  })
+  await page.getByRole('button', { name: 'Pegar', exact: true }).click()
+  await page.locator('.card', { hasText: /pegado-.*\.png/ }).getByText('Subido · en cola').waitFor({ timeout: 30000 })
+  await page.locator('.zona-pegar').evaluate((z) => {
+    const dt = new DataTransfer()
+    dt.items.add(new File(['%PDF-1.4 prueba'], 'factura.pdf', { type: 'application/pdf' }))
+    z.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  })
+  await page.locator('.card', { hasText: 'factura.pdf' }).getByText('Subido · en cola').waitFor({ timeout: 30000 })
+  await page.locator('.zona-pegar').evaluate((z) => {
+    const dt = new DataTransfer()
+    dt.setData('text/plain', 'clave del wifi: 1234')
+    z.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  })
+  await page.getByLabel('Nombre de la nota').fill('wifi')
+  await page.getByRole('button', { name: 'Guardar como nota' }).click()
+  await page.locator('.card', { hasText: 'wifi.txt' }).getByText('Subido · en cola').waitFor({ timeout: 30000 })
+  await page.locator('.sidebar a', { hasText: 'Archivos' }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.archivo-fila').length === 3, null, { timeout: 60000 })
+  paso('pegar: imagen con el botón, archivo desde el portapapeles y texto como nota')
   await page.goto(`${base}/#/galeria`)
 
   await page.getByRole('button', { name: /Bloquear/ }).click()

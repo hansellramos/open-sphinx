@@ -81,3 +81,6 @@ body { background-color: #f4f4f8; }
 .visor-texto { max-height: 70vh; overflow: auto; padding: 1rem; white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
 .archivo-fila { cursor: pointer; }
 .min-w-0 { min-width: 0; }
+.zona-pegar { display: flex; align-items: center; justify-content: center; text-align: center; white-space: nowrap; overflow: hidden; padding: .5rem 1rem; min-height: 2.5rem; border: 1px dashed var(--cui-border-color); border-radius: .5rem; color: var(--cui-secondary-color); font-size: .875rem; caret-color: transparent; -webkit-user-select: text; }
+.zona-pegar:focus { outline: 2px solid #5b4bd6; outline-offset: 1px; }
+.zona-pegar:empty::before { content: attr(data-texto); white-space: normal; }
