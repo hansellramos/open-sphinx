@@ -1,0 +1,74 @@
+// Bóveda: videos cifrados. El servidor nunca tiene la clave para descifrar; solo la pública para cifrar.
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ---------------- NÚCLEO (adaptado de AirCore: sesión, sin usuarios/perfiles porque es personal) ----------------
+
+model Session {
+  sid       String   @id
+  data      String
+  expiresAt DateTime
+}
+
+// Passkeys registradas. prfWrap = la clave privada de la bóveda cifrada con el secreto PRF de esta passkey.
+model Credential {
+  id         String    @id // credential id (base64url)
+  publicKey  Bytes
+  counter    Int       @default(0)
+  transports String? // JSON
+  name       String
+  prfWrap    String? // JSON {salt, iv, ct}
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+}
+
+// Una sola bóveda: clave pública X25519 + la privada envuelta con el código de recuperación.
+model Vault {
+  id           Int      @id @default(1)
+  publicKey    String // base64url raw X25519
+  recoveryWrap String // JSON {salt, iv, ct}
+  createdAt    DateTime @default(now())
+}
+
+// ---------------- VIDEOS ----------------
+
+model Video {
+  id           String    @id @default(uuid())
+  title        String
+  originalName String
+  mime         String?
+  size         Int       @default(0)
+  uploadId     String?   @unique // id de la subida tus (archivo temporal sin cifrar)
+  status       String    @default("en_cola") // en_cola | procesando | listo | error
+  error        String?
+  duration     Float?
+  width        Int?
+  height       Int?
+  videoCodec   String?
+  segments     Int?
+  keyWrap      String? // JSON {epk, iv, ct}: clave del video sellada con la clave pública
+  createdAt    DateTime  @default(now())
+  readyAt      DateTime?
+  jobs         Job[]
+}
+
+model Job {
+  id         Int       @id @default(autoincrement())
+  type       String // procesar
+  videoId    String
+  video      Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  status     String    @default("pendiente") // pendiente | corriendo | hecho | error
+  attempts   Int       @default(0)
+  error      String?
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([status, createdAt])
+}

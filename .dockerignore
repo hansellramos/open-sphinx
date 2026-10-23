@@ -1,0 +1,8 @@
+node_modules
+dist
+data
+.env
+server/generated
+test-results*
+*.png
+.git

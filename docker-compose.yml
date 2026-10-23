@@ -1,0 +1,31 @@
+# En la NAS: /volume2/docker/boveda/docker-compose.yml. Datos en /volume2/boveda.
+# La API solo escucha en 127.0.0.1: se entra únicamente por Tailscale Serve (HTTPS).
+services:
+  app:
+    image: boveda:latest
+    container_name: boveda
+    restart: always
+    env_file: .env
+    ports:
+      - "127.0.0.1:3102:3102"
+    volumes:
+      - /volume2/boveda:/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3102/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+
+  worker:
+    image: boveda:latest
+    container_name: boveda_worker
+    restart: always
+    env_file: .env
+    command: ["node", "server/worker.ts"]
+    volumes:
+      - /volume2/boveda:/data
+    mem_limit: 384m
+    cpus: 2
+    depends_on:
+      app:
+        condition: service_healthy

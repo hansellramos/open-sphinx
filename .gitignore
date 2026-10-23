@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/
+.env
+/server/generated/prisma
+.DS_Store
+*.log
+test-results/
