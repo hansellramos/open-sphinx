@@ -65,6 +65,8 @@ body { background-color: #f4f4f8; }
 .mapa-pop img.difuminada { filter: blur(14px); }
 .leaflet-container .mapa-pop a { text-decoration: none; }
 .mapa-marca { width: 18px; height: 18px; border-radius: 50%; background: #5b4bd6; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.mapa-chico { height: 55vh; min-height: 18rem; }
+.mapa-marca-nueva { background: #e55353; }
 .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(91, 75, 214, .35); }
 .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(91, 75, 214, .85); color: #fff; font-weight: 600; }
 .cortina { position: fixed; inset: 0; z-index: 99999; background: #13121f; display: flex; align-items: center; justify-content: center; }

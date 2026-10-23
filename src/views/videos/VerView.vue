@@ -9,6 +9,7 @@ import { useToastStore } from '@/stores/toast'
 import { decryptBlob } from '@shared/crypto.js'
 import { duracion, fechaHora, tamano } from '@/lib/formato'
 import EtiquetasEditor from '@/components/videos/EtiquetasEditor.vue'
+import UbicacionModal from '@/components/videos/UbicacionModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,6 +20,7 @@ const el = ref(null)
 const error = ref('')
 const editando = ref(false)
 const titulo = ref('')
+const ubicando = ref(false)
 let hls = null
 
 const video = computed(() => boveda.videos.find((v) => v.id === route.params.id))
@@ -55,6 +57,11 @@ const guardarTitulo = accion(async () => {
 })
 const guardarEtiquetas = accion((nombres) => boveda.asignarEtiquetas(video.value, nombres))
 const favorito = accion(() => boveda.favorito(video.value))
+const guardarUbicacion = accion(async (location) => {
+  await boveda.guardarMeta(video.value, { location })
+  ubicando.value = false
+  toast.ok(location ? 'Ubicación guardada' : 'Ubicación quitada')
+})
 
 onMounted(async () => {
   try {
@@ -106,6 +113,7 @@ onBeforeUnmount(() => hls?.destroy())
         <CIcon icon="cil-location-pin" class="me-2 text-body-secondary" />
         <RouterLink v-if="m.location" :to="`/mapa?v=${video.id}`">{{ m.location.lat.toFixed(5) }}, {{ m.location.lon.toFixed(5) }} · ver en el mapa</RouterLink>
         <span v-else class="text-body-secondary">Sin ubicación</span>
+        <CButton color="link" size="sm" class="py-0" @click="ubicando = true">{{ m.location ? 'Cambiar' : 'Agregar' }}</CButton>
       </div>
       <div v-if="m.device" class="mb-1"><CIcon icon="cil-devices" class="me-2 text-body-secondary" />{{ m.device }}</div>
       <div class="text-body-secondary">
@@ -113,4 +121,5 @@ onBeforeUnmount(() => hls?.destroy())
       </div>
     </CCol>
   </CRow>
+  <UbicacionModal v-if="m" :video="video" :visible="ubicando" @close="ubicando = false" @save="guardarUbicacion" />
 </template>
