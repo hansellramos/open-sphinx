@@ -1,5 +1,5 @@
 <script setup>
-// Menú lateral: secciones fijas + las etiquetas (descifradas) con su conteo.
+// Menú lateral. Las etiquetas no se listan aquí: se abren desde «Etiquetas».
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import simplebar from 'simplebar-vue'
@@ -11,10 +11,11 @@ const boveda = useBovedaStore()
 const fijos = computed(() => [
   { to: '/videos', name: 'Todos los videos', icon: 'cil-video', n: boveda.listos.length },
   { to: '/favoritos', name: 'Favoritos', icon: 'cil-star', n: boveda.favoritos.length },
+  { to: '/etiquetas', name: 'Etiquetas', icon: 'cil-tags', n: boveda.etiquetas.length },
   { to: '/mapa', name: 'Mapa', icon: 'cil-map' },
   { to: '/subir', name: 'Subir', icon: 'cil-cloud-upload' },
 ])
-const activo = (to) => route.path === to
+const activo = (to) => route.path === to || (to === '/etiquetas' && route.path.startsWith('/etiquetas/'))
 </script>
 
 <template>
@@ -25,15 +26,6 @@ const activo = (to) => route.path === to
         <span v-if="i.n" class="ms-auto small opacity-50">{{ i.n }}</span>
       </RouterLink>
     </CNavItem>
-    <CNavTitle>Etiquetas</CNavTitle>
-    <CNavItem v-for="t in boveda.etiquetas" :key="t.id">
-      <RouterLink :to="`/etiquetas/${t.id}`" class="nav-link" :class="{ active: activo(`/etiquetas/${t.id}`) }">
-        <span class="nav-icon d-flex justify-content-center"><span :class="`etiqueta-punto bg-${t.color}`"></span></span>
-        <span class="text-truncate">{{ t.name }}</span>
-        <span class="ms-auto small opacity-50">{{ t.videos }}</span>
-      </RouterLink>
-    </CNavItem>
-    <li v-if="!boveda.etiquetas.length" class="px-3 small opacity-50">Etiqueta un video para verla aquí</li>
     <CNavTitle>Bóveda</CNavTitle>
     <CNavItem>
       <RouterLink to="/ajustes" class="nav-link" :class="{ active: activo('/ajustes') }"><CIcon icon="cil-settings" custom-class-name="nav-icon" />Ajustes</RouterLink>

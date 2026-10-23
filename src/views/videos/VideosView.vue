@@ -107,6 +107,7 @@ watch(() => route.params.id, () => (q.value = ''))
 </script>
 
 <template>
+  <RouterLink v-if="modo === 'Etiqueta'" to="/etiquetas" class="small text-decoration-none d-inline-block mb-2"><CIcon icon="cil-arrow-left" class="me-1" />Etiquetas</RouterLink>
   <PageHeader :title="titulo" :subtitle="`${filtrados.length} de ${base.length} video${base.length === 1 ? '' : 's'}`">
     <CFormInput v-model="q" placeholder="Buscar…" style="max-width: 14rem" />
     <CButton :color="hayFiltros ? 'primary' : 'secondary'" variant="outline" @click="verFiltros = !verFiltros"><CIcon icon="cil-calendar" class="me-1" />Filtros</CButton>

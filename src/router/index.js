@@ -12,6 +12,7 @@ const routes = [
     children: [
       { path: 'videos', name: 'Videos', component: () => import('@/views/videos/VideosView.vue') },
       { path: 'favoritos', name: 'Favoritos', component: () => import('@/views/videos/VideosView.vue') },
+      { path: 'etiquetas', name: 'Etiquetas', component: () => import('@/views/videos/EtiquetasView.vue') },
       { path: 'etiquetas/:id', name: 'Etiqueta', component: () => import('@/views/videos/VideosView.vue') },
       { path: 'mapa', name: 'Mapa', component: () => import('@/views/videos/MapaView.vue') },
       { path: 'videos/:id', name: 'Ver', component: () => import('@/views/videos/VerView.vue') },
