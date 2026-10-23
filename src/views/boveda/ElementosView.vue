@@ -1,15 +1,15 @@
 <script setup>
-// Lista de videos (todos / favoritos / una etiqueta). Filtros por texto, fecha, ubicación y zona del
-// mapa; todo se hace aquí sobre los metadatos ya descifrados.
+// Galería (fotos y videos), archivos, favoritos o una etiqueta. Filtros por texto, fecha, ubicación y zona
+// del mapa; todo se hace aquí sobre los metadatos ya descifrados. Los archivos se ven en lista.
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
 import { api } from '@/services/api'
 import PageHeader from '@/components/common/PageHeader.vue'
-import VideoThumb from '@/components/videos/VideoThumb.vue'
-import EtiquetasEditor from '@/components/videos/EtiquetasEditor.vue'
-import { ESTADOS, fecha, mesAnio, tamano } from '@/lib/formato'
+import Miniatura from '@/components/elementos/Miniatura.vue'
+import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
+import { ESTADOS, fecha, iconoArchivo, mesAnio, tamano } from '@/lib/formato'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,22 +21,26 @@ const hasta = ref('')
 const conUbicacion = ref(false)
 const orden = ref('tomado-desc')
 const verFiltros = ref(false)
+const clase = ref('todo') // en la galería: todo | imagen | video
 const editar = ref(null)
 const etiquetar = ref(null) // { v, nombres }
 const borrar = ref(null)
 
-const modo = computed(() => route.name) // Videos | Favoritos | Etiqueta
+const modo = computed(() => route.name) // Galeria | Archivos | Favoritos | Etiqueta
+const enLista = computed(() => modo.value === 'Archivos')
+const conPendientes = computed(() => modo.value === 'Galeria' || modo.value === 'Archivos')
 const etq = computed(() => (modo.value === 'Etiqueta' ? boveda.etiqueta(route.params.id) : null))
 const zona = computed(() => {
   const z = String(route.query.zona ?? '').split(',').map(Number)
   return z.length === 4 && z.every(Number.isFinite) ? { s: z[0], w: z[1], n: z[2], e: z[3] } : null
 })
-const titulo = computed(() => (modo.value === 'Favoritos' ? 'Favoritos' : etq.value ? etq.value.name : 'Videos'))
+const titulo = computed(() => ({ Galeria: 'Fotos y videos', Archivos: 'Archivos', Favoritos: 'Favoritos' })[modo.value] ?? etq.value?.name ?? '')
 
 const base = computed(() => {
   if (modo.value === 'Favoritos') return boveda.favoritos
   if (modo.value === 'Etiqueta') return boveda.listos.filter((v) => v.m.tags?.includes(route.params.id))
-  return boveda.listos
+  if (modo.value === 'Archivos') return boveda.archivos
+  return boveda.galeria
 })
 
 const filtrados = computed(() => {
@@ -47,6 +51,7 @@ const filtrados = computed(() => {
     const f = new Date(boveda.fechaDe(v))
     const loc = v.m.location
     return (
+      (modo.value !== 'Galeria' || clase.value === 'todo' || boveda.tipo(v) === clase.value) &&
       (!t || [v.m.title, v.m.originalName, v.m.device, ...boveda.nombresDe(v)].some((x) => x?.toLowerCase().includes(t))) &&
       (!d || f >= d) &&
       (!h || f <= h) &&
@@ -59,7 +64,7 @@ const filtrados = computed(() => {
   return [...lista].sort((a, b) => signo * (new Date(clave(a)) - new Date(clave(b))))
 })
 
-// Agrupado por mes de la fecha en que se grabó.
+// Agrupado por mes de la fecha en que se tomó/grabó.
 const grupos = computed(() => {
   const out = []
   for (const v of filtrados.value) {
@@ -70,6 +75,7 @@ const grupos = computed(() => {
   return out
 })
 const hayFiltros = computed(() => !!(q.value || desde.value || hasta.value || conUbicacion.value || zona.value))
+const plural = (n) => `${n} ${n === 1 ? 'elemento' : 'elementos'}`
 function limpiarFiltros() {
   q.value = desde.value = hasta.value = ''
   conUbicacion.value = false
@@ -94,7 +100,7 @@ const guardarEtiquetas = accion(async () => {
 })
 const confirmarBorrar = accion(async () => {
   await boveda.borrar(borrar.value)
-  toast.ok('Video borrado')
+  toast.ok('Borrado')
   borrar.value = null
 })
 const reintentar = accion(async (v) => {
@@ -103,12 +109,12 @@ const reintentar = accion(async (v) => {
 })
 
 onMounted(() => boveda.cargar(true).catch((e) => toast.error(e)))
-watch(() => route.params.id, () => (q.value = ''))
+watch(() => route.fullPath, () => (q.value = ''))
 </script>
 
 <template>
   <RouterLink v-if="modo === 'Etiqueta'" to="/etiquetas" class="small text-decoration-none d-inline-block mb-2"><CIcon icon="cil-arrow-left" class="me-1" />Etiquetas</RouterLink>
-  <PageHeader :title="titulo" :subtitle="`${filtrados.length} de ${base.length} video${base.length === 1 ? '' : 's'}`">
+  <PageHeader :title="titulo" :subtitle="filtrados.length === base.length ? plural(base.length) : `${filtrados.length} de ${plural(base.length)}`">
     <CFormInput v-model="q" placeholder="Buscar…" style="max-width: 14rem" />
     <CButton :color="hayFiltros ? 'primary' : 'secondary'" variant="outline" @click="verFiltros = !verFiltros"><CIcon icon="cil-calendar" class="me-1" />Filtros</CButton>
     <CButton color="primary" @click="router.push('/subir')"><CIcon icon="cil-cloud-upload" class="me-1" />Subir</CButton>
@@ -116,13 +122,13 @@ watch(() => route.params.id, () => (q.value = ''))
 
   <CCard v-if="verFiltros || hayFiltros" class="mb-3">
     <CCardBody class="d-flex flex-wrap align-items-end gap-3 py-2">
-      <div><CFormLabel class="small mb-1">Grabado desde</CFormLabel><CFormInput v-model="desde" type="date" size="sm" /></div>
+      <div><CFormLabel class="small mb-1">Fecha desde</CFormLabel><CFormInput v-model="desde" type="date" size="sm" /></div>
       <div><CFormLabel class="small mb-1">hasta</CFormLabel><CFormInput v-model="hasta" type="date" size="sm" /></div>
       <div>
         <CFormLabel class="small mb-1">Orden</CFormLabel>
         <CFormSelect v-model="orden" size="sm">
-          <option value="tomado-desc">Grabado: recientes primero</option>
-          <option value="tomado-asc">Grabado: antiguos primero</option>
+          <option value="tomado-desc">Fecha: recientes primero</option>
+          <option value="tomado-asc">Fecha: antiguos primero</option>
           <option value="subido-desc">Subido: recientes primero</option>
         </CFormSelect>
       </div>
@@ -135,10 +141,16 @@ watch(() => route.params.id, () => (q.value = ''))
     </CCardBody>
   </CCard>
 
-  <!-- Subidas en proceso o con error (aún sin metadatos) -->
-  <div v-if="modo === 'Videos' && boveda.pendientes.length" class="video-grid mb-3">
+  <CNav v-if="modo === 'Galeria'" variant="pills" class="mb-3 gap-1">
+    <CNavItem v-for="[k, txt] in [['todo', 'Todo'], ['imagen', 'Fotos'], ['video', 'Videos']]" :key="k">
+      <CNavLink as="button" :active="clase === k" @click="clase = k">{{ txt }}</CNavLink>
+    </CNavItem>
+  </CNav>
+
+  <!-- Subidas en proceso o con error (aún sin metadatos ni tipo) -->
+  <div v-if="conPendientes && boveda.pendientes.length" class="video-grid mb-3">
     <CCard v-for="v in boveda.pendientes" :key="v.id">
-      <VideoThumb :video="v" />
+      <Miniatura :item="v" />
       <CCardBody class="p-2 px-3 small">
         <CBadge :color="ESTADOS[v.status]?.color">{{ ESTADOS[v.status]?.texto }}</CBadge>
         <span class="ms-2 text-body-secondary">{{ tamano(v.size) }}</span>
@@ -154,22 +166,50 @@ watch(() => route.params.id, () => (q.value = ''))
   <div v-if="!boveda.cargado" class="text-center py-5"><CSpinner /></div>
   <CCard v-else-if="!base.length" class="text-center py-5">
     <CCardBody>
-      <CIcon :icon="modo === 'Favoritos' ? 'cil-star' : 'cil-video'" size="3xl" class="text-secondary mb-3" />
-      <p class="mb-3">{{ modo === 'Favoritos' ? 'Aún no marcas favoritos: toca la estrella de un video.' : modo === 'Etiqueta' ? 'Ningún video tiene esta etiqueta.' : 'Todavía no hay videos.' }}</p>
-      <CButton v-if="modo === 'Videos'" color="primary" @click="router.push('/subir')">Subir el primero</CButton>
+      <CIcon :icon="{ Favoritos: 'cil-star', Archivos: 'cil-folder', Etiqueta: 'cil-tags' }[modo] ?? 'cil-image'" size="3xl" class="text-secondary mb-3" />
+      <p class="mb-3">{{ { Favoritos: 'Aún no marcas favoritos: toca la estrella de cualquier elemento.', Etiqueta: 'Nada tiene esta etiqueta.', Archivos: 'Todavía no hay archivos.' }[modo] ?? 'Todavía no hay fotos ni videos.' }}</p>
+      <CButton v-if="conPendientes" color="primary" @click="router.push('/subir')">Subir el primero</CButton>
     </CCardBody>
   </CCard>
-  <p v-else-if="!filtrados.length" class="text-body-secondary">Ningún video coincide con los filtros.</p>
+  <p v-else-if="!filtrados.length" class="text-body-secondary">Nada coincide con los filtros.</p>
 
-  <template v-for="g in grupos" :key="g.k">
+  <template v-if="enLista">
+    <template v-for="g in grupos" :key="g.k">
+      <div class="grupo-mes">{{ g.k }}</div>
+      <CListGroup>
+        <CListGroupItem v-for="v in g.items" :key="v.id" class="d-flex align-items-center gap-3 archivo-fila" @click="router.push(`/ver/${v.id}`)">
+          <CIcon :icon="iconoArchivo(v.m.originalName, v.m.mime ?? '')" size="xl" class="text-body-secondary flex-shrink-0" />
+          <div class="flex-grow-1 min-w-0">
+            <div class="text-truncate fw-semibold" :title="v.m.title">{{ v.m.title }}</div>
+            <div class="small text-body-secondary d-flex flex-wrap gap-2 align-items-center">
+              <span>{{ fecha(boveda.fechaDe(v)) }}</span><span>{{ tamano(v.size) }}</span>
+              <template v-for="id in v.m.tags" :key="id">
+                <CBadge v-if="boveda.etiqueta(id)" :color="boveda.etiqueta(id).color" class="fw-normal">{{ boveda.etiqueta(id).name }}</CBadge>
+              </template>
+            </div>
+          </div>
+          <CButton color="link" class="p-1" :class="v.m.favorite ? 'text-warning' : 'text-body-secondary'" :title="v.m.favorite ? 'Quitar de favoritos' : 'Favorito'" @click.stop="favorito(v)"><CIcon icon="cil-star" /></CButton>
+          <CDropdown placement="bottom-end" @click.stop>
+            <CDropdownToggle color="link" size="sm" class="p-0 text-body-secondary" :caret="false" aria-label="Opciones">⋯</CDropdownToggle>
+            <CDropdownMenu>
+              <CDropdownItem as="button" @click="etiquetar = { v, nombres: boveda.nombresDe(v) }"><CIcon icon="cil-tags" class="me-2" />Etiquetas</CDropdownItem>
+              <CDropdownItem as="button" @click="editar = { v, title: v.m.title }"><CIcon icon="cil-pencil" class="me-2" />Renombrar</CDropdownItem>
+              <CDropdownItem as="button" class="text-danger" @click="borrar = v"><CIcon icon="cil-trash" class="me-2" />Borrar</CDropdownItem>
+            </CDropdownMenu>
+          </CDropdown>
+        </CListGroupItem>
+      </CListGroup>
+    </template>
+  </template>
+  <template v-for="g in grupos" v-else :key="g.k">
     <div class="grupo-mes">{{ g.k }}</div>
     <div class="video-grid">
-      <CCard v-for="v in g.items" :key="v.id" class="video-card" @click="router.push(`/videos/${v.id}`)">
-        <VideoThumb :video="v">
+      <CCard v-for="v in g.items" :key="v.id" class="video-card" @click="router.push(`/ver/${v.id}`)">
+        <Miniatura :item="v">
           <button type="button" class="fav" :class="{ on: v.m.favorite }" :title="v.m.favorite ? 'Quitar de favoritos' : 'Favorito'" @click.stop="favorito(v)">
             <CIcon icon="cil-star" :class="{ 'opacity-50': !v.m.favorite }" />
           </button>
-        </VideoThumb>
+        </Miniatura>
         <CCardBody class="p-2 px-3">
           <div class="d-flex align-items-start gap-2">
             <div class="flex-grow-1 text-truncate fw-semibold" :title="v.m.title">{{ v.m.title }}</div>
@@ -217,8 +257,8 @@ watch(() => route.params.id, () => (q.value = ''))
   </CModal>
 
   <CModal :visible="!!borrar" @close="borrar = null" alignment="center">
-    <CModalHeader><CModalTitle>¿Borrar el video?</CModalTitle></CModalHeader>
-    <CModalBody v-if="borrar">Se borra <strong>{{ borrar.m?.title ?? 'este video' }}</strong> de la NAS. No se puede deshacer.</CModalBody>
+    <CModalHeader><CModalTitle>¿Borrar?</CModalTitle></CModalHeader>
+    <CModalBody v-if="borrar">Se borra <strong>{{ borrar.m?.title ?? 'esto' }}</strong> de la NAS. No se puede deshacer.</CModalBody>
     <CModalFooter>
       <CButton color="secondary" variant="ghost" @click="borrar = null">Cancelar</CButton>
       <CButton color="danger" @click="confirmarBorrar">Borrar</CButton>

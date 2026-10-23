@@ -1,4 +1,5 @@
-// Carpetas de datos. subidas/ y tmp/ tienen material SIN cifrar de forma temporal; videos/ solo cifrado.
+// Carpetas de datos. subidas/ y tmp/ tienen material SIN cifrar de forma temporal; videos/ solo cifrado
+// (se llama videos/ por historia: guarda fotos y archivos también).
 import { mkdirSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
@@ -13,8 +14,8 @@ export const paths = {
 }
 for (const p of Object.values(paths)) mkdirSync(p, { recursive: true })
 
-// Archivos que puede pedir el navegador de un video ya procesado.
-export const ARCHIVO_VALIDO = /^(index\.m3u8|init\.mp4|seg_\d{5}\.m4s|thumb\.jpg)$/
+// Archivos que puede pedir el navegador de un elemento ya procesado (video, foto o archivo).
+export const ARCHIVO_VALIDO = /^(index\.m3u8|init\.mp4|seg_\d{5}\.m4s|thumb\.jpg|vista\.jpg|orig_\d{5})$/
 export const bovedaJson = () => path.join(root, 'boveda.json')
 export const videoDir = (id: string) => path.join(paths.videos, id)
 

@@ -9,7 +9,8 @@ import { useBovedaStore } from '@/stores/boveda'
 const route = useRoute()
 const boveda = useBovedaStore()
 const fijos = computed(() => [
-  { to: '/videos', name: 'Todos los videos', icon: 'cil-video', n: boveda.listos.length },
+  { to: '/galeria', name: 'Fotos y videos', icon: 'cil-image', n: boveda.galeria.length },
+  { to: '/archivos', name: 'Archivos', icon: 'cil-folder', n: boveda.archivos.length },
   { to: '/favoritos', name: 'Favoritos', icon: 'cil-star', n: boveda.favoritos.length },
   { to: '/etiquetas', name: 'Etiquetas', icon: 'cil-tags', n: boveda.etiquetas.length },
   { to: '/mapa', name: 'Mapa', icon: 'cil-map' },

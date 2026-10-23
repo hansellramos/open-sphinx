@@ -1,4 +1,5 @@
-// Videos: subida reanudable (tus), lista, archivos cifrados y borrado.
+// Elementos (videos, fotos y archivos; la tabla se llama Video por historia): subida reanudable (tus),
+// lista, archivos cifrados y borrado. El tipo de cada uno va dentro de los metadatos cifrados.
 import { Router } from 'express'
 import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -17,16 +18,17 @@ const tus = new TusServer({
   relativeLocation: true, // detrás de Tailscale Serve: evita URLs http:// absolutas
   async onUploadFinish(req, upload) {
     // El nombre del archivo queda en texto plano solo hasta que el worker lo mete en los metadatos cifrados.
-    const name = upload.metadata?.filename || 'video'
+    const name = upload.metadata?.filename || 'archivo'
     const video = await prisma.video.create({
       data: {
         originalName: name.slice(0, 255),
+        mime: upload.metadata?.filetype?.slice(0, 100) || null,
         size: upload.size ?? upload.offset,
         uploadId: upload.id,
         jobs: { create: { type: 'procesar' } },
       },
     })
-    console.log(`[subida] ${((upload.size ?? 0) / 1e6).toFixed(1)} MB → video ${video.id} en cola`)
+    console.log(`[subida] ${((upload.size ?? 0) / 1e6).toFixed(1)} MB → ${video.id} en cola`)
     return {}
   },
 })
@@ -58,7 +60,7 @@ r.get('/', async (req, res) => {
 
 r.get('/:id', async (req, res) => {
   const v = await prisma.video.findUnique({ where: { id: req.params.id }, include: { tags: true } })
-  if (!v) return res.status(404).json({ error: 'Video no encontrado' })
+  if (!v) return res.status(404).json({ error: 'No encontrado' })
   res.json(publico(v))
 })
 
@@ -78,17 +80,17 @@ r.put('/:id/meta', async (req, res) => {
   res.json(publico(v))
 })
 
-// Reintentar un video que falló (si el archivo subido sigue ahí).
+// Reintentar un elemento que falló (si el archivo subido sigue ahí).
 r.post('/:id/reintentar', async (req, res) => {
   const v = await prisma.video.findUnique({ where: { id: req.params.id } })
-  if (!v || v.status !== 'error') return res.status(400).json({ error: 'Solo se reintentan videos con error' })
+  if (!v || v.status !== 'error') return res.status(400).json({ error: 'Solo se reintenta lo que tuvo error' })
   await prisma.video.update({ where: { id: v.id }, data: { status: 'en_cola', error: null, jobs: { create: { type: 'procesar' } } } })
   res.json({ ok: true })
 })
 
 r.delete('/:id', async (req, res) => {
   const v = await prisma.video.findUnique({ where: { id: req.params.id } })
-  if (!v) return res.status(404).json({ error: 'Video no encontrado' })
+  if (!v) return res.status(404).json({ error: 'No encontrado' })
   if (v.status === 'procesando') return res.status(409).json({ error: 'Se está procesando; espera a que termine' })
   await rm(videoDir(v.id), { recursive: true, force: true })
   if (v.uploadId) await borrarSubida(v.uploadId)

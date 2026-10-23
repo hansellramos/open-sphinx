@@ -1,5 +1,5 @@
 <script setup>
-// Mapa con la ubicación (descifrada) de cada video. Las coordenadas nunca salen del navegador;
+// Mapa con la ubicación (descifrada) de cada foto y video. Las coordenadas nunca salen del navegador;
 // solo se piden las imágenes del mapa base a OpenStreetMap.
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -44,7 +44,7 @@ function pintar() {
       () => {
         const div = document.createElement('div')
         div.className = 'mapa-pop'
-        div.innerHTML = `<a href="#/videos/${v.id}"><img alt=""><div class="fw-semibold mt-1 text-body">${esc(v.m.title)}</div><div class="small text-body-secondary">${esc(fecha(boveda.fechaDe(v)))}</div></a>`
+        div.innerHTML = `<a href="#/ver/${v.id}"><img alt=""><div class="fw-semibold mt-1 text-body">${esc(v.m.title)}</div><div class="small text-body-secondary">${esc(fecha(boveda.fechaDe(v)))}</div></a>`
         const img = div.querySelector('img')
         img.classList.toggle('difuminada', priv.difuminar)
         boveda.thumbUrl(v).then((u) => u && (img.src = u)).catch(() => {})
@@ -74,7 +74,7 @@ function encuadrar() {
 function verZona() {
   const b = mapa.getBounds()
   const r = (n) => n.toFixed(5)
-  router.push({ path: '/videos', query: { zona: [r(b.getSouth()), r(b.getWest()), r(b.getNorth()), r(b.getEast())].join(',') } })
+  router.push({ path: '/galeria', query: { zona: [r(b.getSouth()), r(b.getWest()), r(b.getNorth()), r(b.getEast())].join(',') } })
 }
 
 onMounted(async () => {
@@ -100,8 +100,8 @@ onBeforeUnmount(() => mapa?.remove())
 </script>
 
 <template>
-  <PageHeader title="Mapa" :subtitle="`${conUbicacion.length} de ${boveda.listos.length} videos tienen ubicación`">
-    <CButton color="primary" :disabled="!enVista" @click="verZona"><CIcon icon="cil-filter" class="me-1" />Ver los {{ enVista }} videos de esta zona</CButton>
+  <PageHeader title="Mapa" :subtitle="`${conUbicacion.length} de ${boveda.galeria.length} fotos y videos tienen ubicación`">
+    <CButton color="primary" :disabled="!enVista" @click="verZona"><CIcon icon="cil-filter" class="me-1" />Ver los {{ enVista }} de esta zona</CButton>
   </PageHeader>
   <div ref="el" class="mapa mb-4"></div>
 </template>

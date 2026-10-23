@@ -1,11 +1,11 @@
-// Contenido de la bóveda descifrado en memoria: metadatos de cada video (título, fecha, ubicación,
-// equipo, etiquetas, favorito) y el catálogo de etiquetas. El servidor solo guarda esto cifrado,
+// Contenido de la bóveda descifrado en memoria: metadatos de cada elemento —video, foto o archivo— (tipo,
+// título, fecha, ubicación, equipo, etiquetas, favorito) y el catálogo de etiquetas. El servidor solo guarda esto cifrado,
 // así que se carga todo de una vez y se filtra aquí. Al bloquear se borra.
 import { ref, computed, watch, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import { decryptBlob, decryptJSON, encryptJSON, newFileKey, sealFileKey } from '@shared/crypto.js'
+import { aadParte, decryptBlob, decryptJSON, encryptJSON, newFileKey, nombreParte, sealFileKey } from '@shared/crypto.js'
 
 const COLORES = ['primary', 'success', 'danger', 'warning', 'info', 'secondary', 'dark']
 const uuid = () => globalThis.crypto.randomUUID()
@@ -13,7 +13,7 @@ const normalizar = (n) => String(n ?? '').trim().replace(/\s+/g, ' ').slice(0, 4
 
 export const useBovedaStore = defineStore('boveda', () => {
   const auth = useAuthStore()
-  const videos = ref([]) // { id, size, status, error, createdAt, keyWrap, meta, m }
+  const items = ref([]) // { id, size, status, error, createdAt, keyWrap, meta, m }
   const catalogo = ref({ v: 1, tags: [] })
   const cargado = ref(false)
   const metaKey = shallowRef(null)
@@ -22,12 +22,15 @@ export const useBovedaStore = defineStore('boveda', () => {
   let cargando = null
   let timer = null
 
-  const listos = computed(() => videos.value.filter((v) => v.m))
-  const pendientes = computed(() => videos.value.filter((v) => v.status === 'en_cola' || v.status === 'procesando' || v.status === 'error'))
+  const tipo = (v) => v.m?.kind ?? 'video' // lo anterior a fotos/archivos eran solo videos
+  const listos = computed(() => items.value.filter((v) => v.m))
+  const galeria = computed(() => listos.value.filter((v) => tipo(v) !== 'archivo'))
+  const archivos = computed(() => listos.value.filter((v) => tipo(v) === 'archivo'))
+  const pendientes = computed(() => items.value.filter((v) => v.status === 'en_cola' || v.status === 'procesando' || v.status === 'error'))
   const favoritos = computed(() => listos.value.filter((v) => v.m.favorite))
   const etiquetas = computed(() =>
     catalogo.value.tags
-      .map((t) => ({ ...t, videos: listos.value.filter((v) => v.m.tags?.includes(t.id)).length }))
+      .map((t) => ({ ...t, total: listos.value.filter((v) => v.m.tags?.includes(t.id)).length }))
       .sort((a, b) => a.name.localeCompare(b.name, 'es')),
   )
   const etiqueta = (id) => catalogo.value.tags.find((t) => t.id === id)
@@ -64,8 +67,8 @@ export const useBovedaStore = defineStore('boveda', () => {
       publicKey = vault.publicKey
       metaKey.value ??= await asegurarMetaKey(vault)
       if (vault.catalog) catalogo.value = await decryptJSON(metaKey.value, vault.catalog)
-      const prev = new Map(videos.value.map((v) => [v.id, v]))
-      videos.value = await Promise.all(lista.map((v) => descifrar(v, prev.get(v.id))))
+      const prev = new Map(items.value.map((v) => [v.id, v]))
+      items.value = await Promise.all(lista.map((v) => descifrar(v, prev.get(v.id))))
       await migrarLegado(lista)
       cargado.value = true
       programarSondeo()
@@ -73,10 +76,10 @@ export const useBovedaStore = defineStore('boveda', () => {
     return cargando
   }
 
-  // Mientras haya videos procesándose, se vuelve a consultar cada 4 s.
+  // Mientras haya elementos procesándose, se vuelve a consultar cada 4 s.
   function programarSondeo() {
     clearTimeout(timer)
-    if (videos.value.some((v) => v.status === 'en_cola' || v.status === 'procesando')) timer = setTimeout(() => cargar(true).catch(() => {}), 4000)
+    if (items.value.some((v) => v.status === 'en_cola' || v.status === 'procesando')) timer = setTimeout(() => cargar(true).catch(() => {}), 4000)
   }
 
   // Videos del MVP (título/etiquetas sin cifrar): se cifran aquí y el servidor borra lo plano.
@@ -95,8 +98,8 @@ export const useBovedaStore = defineStore('boveda', () => {
         }
         ids.push(tag.id)
       }
-      const actual = videos.value.find((x) => x.id === v.id)
-      const base = actual?.m ?? { v: 1, title: v.legado.title ?? 'video', originalName: v.legado.originalName, takenAt: null, location: null, device: null, duration: v.legado.duration, width: v.legado.width, height: v.legado.height, videoCodec: v.legado.videoCodec, favorite: false, tags: [] }
+      const actual = items.value.find((x) => x.id === v.id)
+      const base = actual?.m ?? { v: 1, kind: 'video', title: v.legado.title ?? 'video', originalName: v.legado.originalName, takenAt: null, location: null, device: null, duration: v.legado.duration, width: v.legado.width, height: v.legado.height, videoCodec: v.legado.videoCodec, favorite: false, tags: [] }
       await guardarMeta(actual ?? v, { ...base, tags: [...new Set([...(base.tags ?? []), ...ids])] }, true)
     }
     if (catalogoCambio) await guardarCatalogo()
@@ -109,9 +112,9 @@ export const useBovedaStore = defineStore('boveda', () => {
     const m = reemplazar ? cambios : { ...v.m, ...cambios }
     const meta = await encryptJSON(await auth.claveDe(v), m)
     const r = await api.put(`/videos/${v.id}/meta`, { meta })
-    const i = videos.value.findIndex((x) => x.id === v.id)
-    if (i >= 0) videos.value[i] = { ...videos.value[i], ...r, legado: undefined, meta, m }
-    return videos.value[i]
+    const i = items.value.findIndex((x) => x.id === v.id)
+    if (i >= 0) items.value[i] = { ...items.value[i], ...r, legado: undefined, meta, m }
+    return items.value[i]
   }
 
   async function guardarCatalogo() {
@@ -163,12 +166,13 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   async function borrar(v) {
     await api.del(`/videos/${v.id}`)
-    videos.value = videos.value.filter((x) => x.id !== v.id)
+    items.value = items.value.filter((x) => x.id !== v.id)
   }
 
   // ---------- miniaturas (cifradas; se descifran al aparecer en pantalla) ----------
 
   async function thumbUrl(v) {
+    if (tipo(v) === 'archivo') return null
     if (thumbs.has(v.id)) return thumbs.get(v.id)
     const res = await fetch(`/api/videos/${v.id}/archivo/thumb.jpg`, { credentials: 'include' })
     if (!res.ok) return null
@@ -177,9 +181,45 @@ export const useBovedaStore = defineStore('boveda', () => {
     return url
   }
 
+  // ---------- originales (fotos y archivos, en partes) ----------
+
+  async function bajar(v, nombre) {
+    const res = await fetch(`/api/videos/${v.id}/archivo/${nombre}`, { credentials: 'include' })
+    if (!res.ok) throw new Error(res.status === 401 ? 'Sesión expirada' : 'No se pudo bajar el archivo')
+    return res.arrayBuffer()
+  }
+
+  // Baja y descifra el original parte por parte. Queda entero en memoria: para archivos muy grandes en
+  // el iPhone puede quedarse sin RAM.
+  async function original(v, progreso) {
+    const key = await auth.claveDe(v)
+    const n = v.m.parts ?? 1
+    const partes = []
+    for (let i = 0; i < n; i++) {
+      partes.push(await decryptBlob(key, await bajar(v, nombreParte(i)), aadParte(i, n)))
+      progreso?.((i + 1) / n)
+    }
+    return new Blob(partes, { type: v.m.mime || 'application/octet-stream' })
+  }
+
+  // Lo que se muestra de una foto: la copia JPEG (HEIC) o el original.
+  async function imagen(v) {
+    if (!v.m.vista) return original(v)
+    return new Blob([await decryptBlob(await auth.claveDe(v), await bajar(v, 'vista.jpg'))], { type: 'image/jpeg' })
+  }
+
+  async function descargar(v, progreso) {
+    const url = URL.createObjectURL(await original(v, progreso))
+    const a = Object.assign(document.createElement('a'), { href: url, download: v.m.originalName || v.m.title })
+    document.body.append(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
   function limpiar() {
     clearTimeout(timer)
-    videos.value = []
+    items.value = []
     catalogo.value = { v: 1, tags: [] }
     metaKey.value = null
     cargado.value = false
@@ -192,8 +232,8 @@ export const useBovedaStore = defineStore('boveda', () => {
   )
 
   return {
-    videos, listos, pendientes, favoritos, etiquetas, cargado, COLORES,
-    etiqueta, fechaDe, nombresDe, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
+    items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
+    tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     favorito, renombrar, borrar, thumbUrl, publicKey: () => publicKey,
   }
 })

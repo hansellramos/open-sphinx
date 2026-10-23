@@ -121,7 +121,7 @@ onMounted(() => Promise.all([cargar(), boveda.cargar()]).catch((e) => toast.erro
         <CFormInput type="number" min="0" step="5" :model-value="priv.segundos" @change="priv.setSegundos($event.target.value)" />
         <span class="small text-nowrap">segundos sin actividad</span>
       </div>
-      <p class="small text-body-secondary mt-3">Al salir de la app (app switcher, otra app, pantalla apagada) se tapa todo y se pausa el video. Si vuelves después de este tiempo, se bloquea y pide la passkey (0 = siempre).</p>
+      <p class="small text-body-secondary mt-3">Al salir de la app (app switcher, otra app, pantalla apagada) se tapa todo y se pausa lo que se esté reproduciendo. Si vuelves después de este tiempo, se bloquea y pide la passkey (0 = siempre).</p>
       <div class="d-flex align-items-center gap-2" style="max-width: 20rem">
         <CFormInput type="number" min="0" step="15" :model-value="priv.autobloqueo" @change="priv.setAutobloqueo($event.target.value)" />
         <span class="small text-nowrap">segundos fuera de la app</span>
@@ -132,8 +132,8 @@ onMounted(() => Promise.all([cargar(), boveda.cargar()]).catch((e) => toast.erro
   <CCard class="mb-4">
     <CCardHeader class="fw-semibold">Etiquetas</CCardHeader>
     <CCardBody>
-      <p class="small text-body-secondary">Van cifradas: el servidor no ve sus nombres ni a qué videos pertenecen.</p>
-      <p v-if="!boveda.etiquetas.length" class="small text-body-secondary mb-0">Aún no hay etiquetas. Se crean al etiquetar un video.</p>
+      <p class="small text-body-secondary">Van cifradas: el servidor no ve sus nombres ni a qué pertenecen.</p>
+      <p v-if="!boveda.etiquetas.length" class="small text-body-secondary mb-0">Aún no hay etiquetas. Se crean al etiquetar algo.</p>
       <div v-for="e in boveda.etiquetas" :key="e.id" class="d-flex align-items-center gap-2 mb-2" style="max-width: 36rem">
         <CFormInput :model-value="e.name" size="sm" maxlength="40" @change="guardarEtiqueta(e, { name: $event.target.value })" />
         <div class="d-flex gap-1">
@@ -147,7 +147,7 @@ onMounted(() => Promise.all([cargar(), boveda.cargar()]).catch((e) => toast.erro
             @click="guardarEtiqueta(e, { color: c })"
           ></button>
         </div>
-        <span class="small text-body-secondary text-nowrap">{{ e.videos }} video{{ e.videos === 1 ? '' : 's' }}</span>
+        <span class="small text-body-secondary text-nowrap">{{ e.total }} elemento{{ e.total === 1 ? '' : 's' }}</span>
         <CButton color="link" size="sm" class="text-danger" @click="borrarEtq = e"><CIcon icon="cil-trash" /></CButton>
       </div>
     </CCardBody>
@@ -175,7 +175,7 @@ onMounted(() => Promise.all([cargar(), boveda.cargar()]).catch((e) => toast.erro
 
   <CModal :visible="!!borrarEtq" @close="borrarEtq = null" alignment="center">
     <CModalHeader><CModalTitle>¿Borrar la etiqueta?</CModalTitle></CModalHeader>
-    <CModalBody v-if="borrarEtq">Se quita <strong>{{ borrarEtq.name }}</strong> de {{ borrarEtq.videos }} video(s). Los videos no se borran.</CModalBody>
+    <CModalBody v-if="borrarEtq">Se quita <strong>{{ borrarEtq.name }}</strong> de {{ borrarEtq.total }} elemento(s). No se borra ninguno.</CModalBody>
     <CModalFooter>
       <CButton color="secondary" variant="ghost" @click="borrarEtq = null">Cancelar</CButton>
       <CButton color="danger" @click="confirmarBorrarEtq">Borrar</CButton>

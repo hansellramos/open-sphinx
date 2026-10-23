@@ -26,7 +26,7 @@ export const useSubidasStore = defineStore('subidas', () => {
       chunkSize: 32 * 1024 * 1024,
       retryDelays: [0, 1000, 3000, 5000, 10000, 30000],
       removeFingerprintOnSuccess: true,
-      metadata: { filename: it.nombre, filetype: it.file.type || 'video/mp4' },
+      metadata: { filename: it.nombre, filetype: it.file.type || '' },
       onProgress: (sent, total) => (it.progreso = Math.round((sent / total) * 1000) / 10),
       onSuccess: () => {
         it.estado = 'listo'

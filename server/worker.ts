@@ -1,11 +1,12 @@
-// Worker de la cola: toma un trabajo a la vez, corta el video en fragmentos, los cifra con una clave
-// nueva, sella esa clave con la clave pública de la bóveda y borra todo lo que quedó sin cifrar.
+// Worker de la cola: toma un trabajo a la vez. Videos: los corta en fragmentos; fotos: miniatura (y copia
+// JPEG si es HEIC); archivos: tal cual. Todo se cifra con una clave nueva por elemento, esa clave se sella
+// con la clave pública de la bóveda y se borra lo que quedó sin cifrar.
 import 'dotenv/config'
-import { mkdir, readFile, readdir, rename, rm, writeFile, copyFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile, copyFile } from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from './db.ts'
 import { borrarSubida, paths, videoDir } from './lib/paths.ts'
-import { miniatura, probe, segmentar } from './lib/media.ts'
+import { cifrarEnPartes, miniatura, prepararImagen, probe, segmentar, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
 import { encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
 
 const ESPERA_MS = 5_000
@@ -18,14 +19,39 @@ export async function procesar(videoId: string) {
   const input = path.join(paths.subidas, video.uploadId ?? '')
   const work = path.join(paths.tmp, video.id)
   const destinoTmp = path.join(paths.videos, `.${video.id}.parcial`)
-  await rm(work, { recursive: true, force: true })
+  const nombre = video.originalName ?? 'archivo'
+  const limpiarWork = async () => {
+    await rm(work, { recursive: true, force: true })
+    await mkdir(work, { recursive: true })
+  }
   await rm(destinoTmp, { recursive: true, force: true })
-  await mkdir(work, { recursive: true })
+  await limpiarWork()
   await mkdir(destinoTmp, { recursive: true })
   try {
-    const p = await probe(input)
-    await segmentar(input, work, p)
-    await miniatura(input, path.join(work, 'thumb.jpg'), p).catch((e) => console.warn(`[worker] sin miniatura: ${e.message}`))
+    // Qué es: un video que no se puede reproducir o una imagen que no se puede leer se guardan como archivo.
+    let tipo = tipoDe(nombre, video.mime)
+    let p: Probe | null = null
+    let img: InfoImagen | null = null
+    if (tipo === 'video') {
+      try {
+        p = await probe(input)
+        await segmentar(input, work, p)
+        await miniatura(input, path.join(work, 'thumb.jpg'), p).catch((e) => console.warn(`[worker] sin miniatura: ${e.message}`))
+      } catch (e) {
+        console.warn(`[worker] no se pudo preparar como video (${e.message}); se guarda como archivo`)
+        tipo = 'archivo'
+        p = null
+        await limpiarWork()
+      }
+    } else if (tipo === 'imagen') {
+      try {
+        img = await prepararImagen(input, nombre, work)
+      } catch (e) {
+        console.warn(`[worker] no se pudo preparar como imagen (${e.message}); se guarda como archivo`)
+        tipo = 'archivo'
+        await limpiarWork()
+      }
+    }
 
     const fk = await newFileKey()
     const archivos = (await readdir(work)).filter((f) => f !== 'index.m3u8')
@@ -34,26 +60,20 @@ export async function procesar(videoId: string) {
       await writeFile(path.join(destinoTmp, `${f}.enc`), await encryptBlob(fk.key, plano))
       await rm(path.join(work, f)) // lo sin cifrar se borra apenas se cifra
     }
-    await copyFile(path.join(work, 'index.m3u8'), path.join(destinoTmp, 'index.m3u8'))
+    if (p) await copyFile(path.join(work, 'index.m3u8'), path.join(destinoTmp, 'index.m3u8'))
+    // Fotos y archivos: también el original, en partes.
+    const parts = p ? null : await cifrarEnPartes(input, destinoTmp, fk.key, (await stat(input)).size)
     const keyWrap = await sealFileKey(vault.publicKey, fk.raw)
     fk.raw.fill(0)
-    // Metadatos (incluida la fecha/ubicación/equipo del iPhone) cifrados con la clave del video.
-    const nombre = video.originalName ?? 'video'
-    const meta = await encryptJSON(fk.key, {
-      v: 1,
-      title: nombre.replace(/\.[^.]+$/, ''),
-      originalName: nombre,
-      takenAt: p.takenAt,
-      location: p.location,
-      device: p.device,
-      duration: p.duration,
-      width: p.width,
-      height: p.height,
-      videoCodec: p.videoCodec,
-      tags: [],
-      favorite: false,
-    })
-    console.log(`[worker] metadatos: fecha ${p.takenAt ? 'sí' : 'no'}, ubicación ${p.location ? 'sí' : 'no'}, equipo ${p.device ? 'sí' : 'no'}`)
+    // Metadatos (incluido el tipo y la fecha/ubicación/equipo) cifrados con la clave del elemento.
+    const comunes = { v: 1, kind: tipo, title: nombre.replace(/\.[^.]+$/, '') || nombre, originalName: nombre, mime: video.mime || null, tags: [], favorite: false }
+    const datos = p
+      ? { takenAt: p.takenAt, location: p.location, device: p.device, duration: p.duration, width: p.width, height: p.height, videoCodec: p.videoCodec }
+      : img
+        ? { takenAt: img.takenAt, location: img.location, device: img.device, width: img.width, height: img.height, vista: img.vista, parts }
+        : { takenAt: null, location: null, device: null, parts }
+    const meta = await encryptJSON(fk.key, { ...comunes, ...datos })
+    console.log(`[worker] ${tipo}: fecha ${datos.takenAt ? 'sí' : 'no'}, ubicación ${datos.location ? 'sí' : 'no'}, equipo ${datos.device ? 'sí' : 'no'}`)
     // La carpeta queda autocontenida: con ella + el código de recuperación se puede abrir aunque se pierda la base.
     await writeFile(path.join(destinoTmp, 'key.json'), JSON.stringify({ v: 2, keyWrap, meta }))
 
@@ -68,7 +88,7 @@ export async function procesar(videoId: string) {
         title: null,
         originalName: null,
         mime: null,
-        segments: archivos.filter((f) => f.startsWith('seg_')).length,
+        segments: p ? archivos.filter((f) => f.startsWith('seg_')).length : null,
         keyWrap: JSON.stringify(keyWrap),
         readyAt: new Date(),
         uploadId: null,

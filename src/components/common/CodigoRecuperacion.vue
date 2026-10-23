@@ -25,7 +25,7 @@ function descargar() {
   <div>
     <CAlert color="warning" class="small">
       Este código abre la bóveda si pierdes tus passkeys. <strong>Solo se muestra esta vez</strong> y nadie puede recuperarlo:
-      escríbelo en papel o guárdalo en tu gestor de contraseñas. Si lo pierdes junto con las passkeys, los videos no se pueden recuperar.
+      escríbelo en papel o guárdalo en tu gestor de contraseñas. Si lo pierdes junto con las passkeys, lo guardado no se puede recuperar.
     </CAlert>
     <div class="recovery-code p-3 rounded border bg-body-tertiary text-center mb-3">{{ codigo }}</div>
     <div class="d-flex gap-2 mb-3">

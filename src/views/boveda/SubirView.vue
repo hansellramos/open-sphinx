@@ -11,8 +11,7 @@ const input = ref(null)
 const encima = ref(false)
 
 function elegir(files) {
-  const videos = [...files].filter((f) => f.type.startsWith('video/') || /\.(mp4|mov|m4v|mkv|webm|avi)$/i.test(f.name))
-  if (videos.length) subidas.agregar(videos)
+  if (files.length) subidas.agregar([...files])
 }
 function soltar(e) {
   encima.value = false
@@ -22,9 +21,9 @@ const COLOR = { esperando: 'secondary', subiendo: 'primary', listo: 'success', e
 </script>
 
 <template>
-  <PageHeader title="Subir videos" subtitle="Se suben sin cifrar por la VPN; la NAS los corta en fragmentos, los cifra y borra el original.">
+  <PageHeader title="Subir" subtitle="Se suben por la VPN; la NAS los cifra y borra lo que llegó sin cifrar.">
     <CButton v-if="subidas.items.some((i) => i.estado === 'listo')" color="secondary" variant="outline" @click="subidas.limpiarListos()">Limpiar terminados</CButton>
-    <CButton color="primary" variant="outline" @click="router.push('/videos')">Ver videos</CButton>
+    <CButton color="primary" variant="outline" @click="router.push('/galeria')">Ir a la galería</CButton>
   </PageHeader>
 
   <div
@@ -36,9 +35,9 @@ const COLOR = { esperando: 'secondary', subiendo: 'primary', listo: 'success', e
     @drop.prevent="soltar"
   >
     <CIcon icon="cil-cloud-upload" size="3xl" class="text-primary mb-2" />
-    <div class="fw-semibold">Toca para elegir videos o arrástralos aquí</div>
+    <div class="fw-semibold">Toca para elegir fotos, videos o archivos, o arrástralos aquí</div>
     <div class="small text-body-secondary">Se suben de a uno; si se corta la conexión, siguen donde iban</div>
-    <input ref="input" type="file" accept="video/*" multiple hidden @change="elegir($event.target.files); $event.target.value = ''" />
+    <input ref="input" type="file" multiple hidden @change="elegir($event.target.files); $event.target.value = ''" />
   </div>
 
   <CCard v-for="it in subidas.items" :key="it.id" class="mb-2">

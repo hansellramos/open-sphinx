@@ -8,19 +8,23 @@ const routes = [
   {
     path: '/',
     component: DefaultLayout,
-    redirect: '/videos',
+    redirect: '/galeria',
     children: [
-      { path: 'videos', name: 'Videos', component: () => import('@/views/videos/VideosView.vue') },
-      { path: 'favoritos', name: 'Favoritos', component: () => import('@/views/videos/VideosView.vue') },
-      { path: 'etiquetas', name: 'Etiquetas', component: () => import('@/views/videos/EtiquetasView.vue') },
-      { path: 'etiquetas/:id', name: 'Etiqueta', component: () => import('@/views/videos/VideosView.vue') },
-      { path: 'mapa', name: 'Mapa', component: () => import('@/views/videos/MapaView.vue') },
-      { path: 'videos/:id', name: 'Ver', component: () => import('@/views/videos/VerView.vue') },
-      { path: 'subir', name: 'Subir', component: () => import('@/views/videos/SubirView.vue') },
+      { path: 'galeria', name: 'Galeria', component: () => import('@/views/boveda/ElementosView.vue') },
+      { path: 'archivos', name: 'Archivos', component: () => import('@/views/boveda/ElementosView.vue') },
+      { path: 'favoritos', name: 'Favoritos', component: () => import('@/views/boveda/ElementosView.vue') },
+      { path: 'etiquetas', name: 'Etiquetas', component: () => import('@/views/boveda/EtiquetasView.vue') },
+      { path: 'etiquetas/:id', name: 'Etiqueta', component: () => import('@/views/boveda/ElementosView.vue') },
+      { path: 'mapa', name: 'Mapa', component: () => import('@/views/boveda/MapaView.vue') },
+      { path: 'ver/:id', name: 'Ver', component: () => import('@/views/boveda/VerView.vue') },
+      // Enlaces de antes (cuando solo había videos)
+      { path: 'videos', redirect: (to) => ({ path: '/galeria', query: to.query }) },
+      { path: 'videos/:id', redirect: (to) => `/ver/${to.params.id}` },
+      { path: 'subir', name: 'Subir', component: () => import('@/views/boveda/SubirView.vue') },
       { path: 'ajustes', name: 'Ajustes', component: () => import('@/views/ajustes/AjustesView.vue') },
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/videos' },
+  { path: '/:pathMatch(.*)*', redirect: '/galeria' },
 ]
 
 const router = createRouter({ history: createWebHashHistory(), routes, scrollBehavior: () => ({ top: 0 }) })
@@ -35,7 +39,7 @@ router.beforeEach(async (to) => {
     return to.name === 'Configurar' ? true : { name: 'Configurar' }
   }
   if (to.meta.public) return to.name === 'Configurar' ? { name: 'Entrar' } : true
-  if (!e.sesion || !auth.desbloqueada) return { name: 'Entrar', query: to.fullPath !== '/videos' ? { r: to.fullPath } : {} }
+  if (!e.sesion || !auth.desbloqueada) return { name: 'Entrar', query: to.fullPath !== '/galeria' ? { r: to.fullPath } : {} }
   return true
 })
 

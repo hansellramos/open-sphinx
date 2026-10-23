@@ -65,7 +65,7 @@ async function crearBoveda() {
 
         <template v-if="paso === 1">
           <p class="small text-body-secondary">
-            Vas a entrar con una <strong>passkey</strong> (Face ID / Touch ID). La misma passkey abre la clave que descifra tus videos;
+            Vas a entrar con una <strong>passkey</strong> (Face ID / Touch ID). La misma passkey abre la clave que descifra todo;
             el servidor nunca la ve.
           </p>
           <CFormLabel for="nombre">Nombre de esta passkey</CFormLabel>
@@ -78,7 +78,7 @@ async function crearBoveda() {
         <template v-else-if="paso === 2">
           <CAlert v-if="sinPrf" color="warning" class="small">
             Este navegador no permite abrir la bóveda con la passkey (le falta la extensión PRF). Igual puedes crearla:
-            para ver tus videos aquí usarás el <strong>código de recuperación</strong>. En Safari (iPhone/Mac) o Chrome recientes sí funciona la passkey.
+            para entrar aquí usarás el <strong>código de recuperación</strong>. En Safari (iPhone/Mac) o Chrome recientes sí funciona la passkey.
           </CAlert>
           <p class="small text-body-secondary">Ahora se crea la clave de la bóveda en este dispositivo. Al servidor solo llega la parte pública, que sirve para cifrar.</p>
           <CButton color="primary" class="w-100" :disabled="ocupado" @click="crearBoveda">
@@ -86,7 +86,7 @@ async function crearBoveda() {
           </CButton>
         </template>
 
-        <CodigoRecuperacion v-else :codigo="codigo" @listo="router.push('/videos')" />
+        <CodigoRecuperacion v-else :codigo="codigo" @listo="router.push('/galeria')" />
       </CCardBody>
     </CCard>
   </div>

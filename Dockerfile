@@ -1,4 +1,5 @@
 # Imagen única para la API y el worker (ARM64 en la NAS). Se construye en el Mac (también ARM64).
+# libheif: las fotos HEIC del iPhone (ffmpeg 7.1 no arma las fotos en mosaico).
 FROM node:26-trixie-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -8,7 +9,7 @@ COPY . .
 RUN npx prisma generate && npm run build
 
 FROM node:26-trixie-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg util-linux && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg util-linux libheif-examples libheif-plugin-libde265 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

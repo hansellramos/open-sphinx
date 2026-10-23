@@ -149,19 +149,26 @@ export async function openFileKey(privateKey, sealed) {
 
 // ---------------- archivos ----------------
 
-export async function encryptBlob(fileKey, bytes) {
+// aad (opcional): datos autenticados sin cifrar, p. ej. la posición de una parte para que no se puedan reordenar.
+export async function encryptBlob(fileKey, bytes, aad) {
   const iv = randomBytes(12)
-  const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv }, fileKey, bytes))
+  const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv, ...(aad && { additionalData: aad }) }, fileKey, bytes))
   const out = new Uint8Array(12 + ct.length)
   out.set(iv, 0)
   out.set(ct, 12)
   return out
 }
 
-export async function decryptBlob(fileKey, data) {
+export async function decryptBlob(fileKey, data, aad) {
   const u8 = data instanceof Uint8Array ? data : new Uint8Array(data)
-  return subtle.decrypt({ name: 'AES-GCM', iv: u8.subarray(0, 12) }, fileKey, u8.subarray(12))
+  return subtle.decrypt({ name: 'AES-GCM', iv: u8.subarray(0, 12), ...(aad && { additionalData: aad }) }, fileKey, u8.subarray(12))
 }
+
+// Originales de fotos y archivos: se cifran en partes de 8 MiB (orig_00000…), cada una atada a su
+// posición y al total, para descargarlos por pedazos sin que se puedan reordenar ni recortar.
+export const TAM_PARTE = 8 * 1024 * 1024
+export const nombreParte = (i) => `orig_${String(i).padStart(5, '0')}`
+export const aadParte = (i, total) => enc.encode(`boveda/parte/${i}/${total}`)
 
 // ---------------- JSON cifrado (metadatos) ----------------
 

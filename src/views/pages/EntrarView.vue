@@ -15,7 +15,7 @@ const conSesion = computed(() => !!auth.estado?.sesion)
 
 function continuar() {
   if (!auth.estado?.configurada) return router.push({ name: 'Configurar' })
-  router.push(route.query.r || '/videos')
+  router.push(route.query.r || '/galeria')
 }
 
 async function entrar() {
@@ -56,7 +56,7 @@ async function usarCodigo() {
         <div class="text-center mb-4">
           <img src="/favicon.svg" width="56" height="56" alt="" />
           <h1 class="h3 mt-3 mb-1">Bóveda</h1>
-          <div class="text-body-secondary small">{{ conSesion ? 'La bóveda está bloqueada' : 'Tus videos, cifrados' }}</div>
+          <div v-if="conSesion" class="text-body-secondary small">Bloqueada</div>
         </div>
         <CAlert v-if="error" color="danger" class="small">{{ error }}</CAlert>
 

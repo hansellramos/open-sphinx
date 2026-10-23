@@ -1,9 +1,10 @@
 // Prueba de punta a punta en Chrome con una passkey virtual (con PRF):
-// configurar → subir → el worker cifra → miniatura y reproducción descifradas → bloquear → código de recuperación.
+// configurar → subir video, foto y archivo → el worker cifra → miniaturas, reproducción, foto y archivo descifrados →
+// bloquear → código de recuperación.
 // Uso: npm run build && node scripts/e2e.mjs
 import { chromium } from 'playwright-core'
 import { spawn, execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -15,6 +16,14 @@ const video = path.join(dir, 'prueba.mov')
 execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440', '-t', '30', '-c:v', process.argv[2] ?? 'libx264', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac',
   '-metadata', 'com.apple.quicktime.location.ISO6709=+04.6534-074.0836+2581.123/', '-metadata', 'com.apple.quicktime.creationdate=2021-12-24T19:03:12-0500',
   '-metadata', 'com.apple.quicktime.make=Apple', '-metadata', 'com.apple.quicktime.model=iPhone 12', '-movflags', 'use_metadata_tags', video])
+// Foto con EXIF de celular (Medellín) y un archivo de texto.
+const { conExif } = await import('../server/tests/exif.ts')
+const foto = path.join(dir, 'IMG_2000.jpg')
+execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1200x800', '-frames:v', '1', `${foto}.base.jpg`])
+writeFileSync(foto, conExif(readFileSync(`${foto}.base.jpg`), { fecha: '2023:07:14 16:20:05', zona: '-05:00', lat: 6.2442, lon: -75.5812, alt: 1495, make: 'Apple', model: 'iPhone 15 Pro' }))
+const notas = path.join(dir, 'notas-secretas.txt')
+const textoNotas = 'Contenido confidencial de prueba\n'.repeat(50)
+writeFileSync(notas, textoNotas)
 
 const procs = [spawn('node', ['server/index.ts'], { env, stdio: 'inherit' }), spawn('node', ['server/worker.ts'], { env, stdio: 'inherit' })]
 const fin = (code) => {
@@ -43,13 +52,13 @@ try {
   paso('passkey con PRF + bóveda creada, código de recuperación mostrado')
   await page.getByLabel('Ya lo guardé').check()
   await page.getByRole('button', { name: 'Continuar' }).click()
-  await page.waitForURL(/#\/videos/)
+  await page.waitForURL(/#\/galeria/)
 
   await page.goto(`${base}/#/subir`)
   await page.locator('input[type=file]').setInputFiles(video)
   await page.getByText('Subido · en cola para cifrar').waitFor({ timeout: 60000 })
   paso('subida tus completa')
-  await page.goto(`${base}/#/videos`)
+  await page.goto(`${base}/#/galeria`)
   await page.locator('.thumb img').waitFor({ timeout: 90000 })
   if (!(await page.locator('.thumb img').getAttribute('class'))?.includes('difuminada')) throw new Error('la miniatura no está difuminada por defecto')
   await page.getByText('Diciembre de 2021').waitFor()
@@ -81,14 +90,14 @@ try {
   paso('favoritos')
   await page.locator('.sidebar a', { hasText: 'Mapa' }).click()
   await page.locator('.mapa-marca').waitFor()
-  await page.getByRole('button', { name: /Ver los 1 videos de esta zona/ }).click()
+  await page.getByRole('button', { name: /Ver los 1 de esta zona/ }).click()
   await page.waitForURL(/zona=/)
   if ((await page.locator('.video-card').count()) !== 1) throw new Error('filtro por zona vacío')
   paso('mapa con la ubicación descifrada y filtro por zona')
 
-  await page.locator('.sidebar a', { hasText: 'Todos los videos' }).click()
+  await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
   await page.locator('.video-card').first().click()
-  await page.waitForURL(/#\/videos\/[0-9a-f-]+/)
+  await page.waitForURL(/#\/ver\/[0-9a-f-]+/)
   await page.locator('video').evaluate((v) => { v.muted = true; return v.play().catch(() => {}) })
   await page.waitForFunction(() => document.querySelector('video')?.currentTime > 2, null, { timeout: 30000 })
   // Saltar al final: pide fragmentos del medio sin bajar todo.
@@ -116,27 +125,56 @@ try {
   await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
   await page.locator('.etiqueta-tile', { hasText: 'Familia' }).waitFor()
   paso('etiquetas desde el reproductor (persisten tras recargar) y metadatos del iPhone visibles')
-  await page.goto(`${base}/#/videos`)
+
+  // Fotos y archivos
+  await page.goto(`${base}/#/subir`)
+  await page.locator('input[type=file]').setInputFiles([foto, notas])
+  await page.waitForFunction(() => [...document.querySelectorAll('.card')].filter((c) => c.innerText.includes('Subido · en cola')).length === 2, null, { timeout: 60000 })
+  await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.video-card').length === 2, null, { timeout: 60000 })
+  await page.getByRole('button', { name: 'Fotos', exact: true }).click()
+  if ((await page.locator('.video-card').count()) !== 1) throw new Error('el filtro Fotos no deja solo la foto')
+  await page.locator('.video-card .thumb img').waitFor()
+  await page.locator('.video-card').click()
+  await page.waitForURL(/#\/ver\//)
+  await page.locator('img.foto').waitFor()
+  if (!(await page.locator('img.foto').evaluate((i) => i.complete && i.naturalWidth === 1200))) throw new Error('la foto no se descifró')
+  await page.getByText('Tomada el').waitFor()
+  await page.getByText('Apple iPhone 15 Pro').waitFor()
+  paso('foto: miniatura y foto descifradas, filtro Fotos, fecha/equipo del EXIF')
+  await page.locator('.sidebar a', { hasText: 'Archivos' }).click()
+  await page.locator('.archivo-fila', { hasText: 'notas-secretas' }).click()
+  await page.locator('pre.visor-texto', { hasText: 'Contenido confidencial' }).waitFor()
+  const [descarga] = await Promise.all([page.waitForEvent('download'), page.getByTitle('Descargar el original').click()])
+  if (descarga.suggestedFilename() !== 'notas-secretas.txt') throw new Error(`nombre descargado: ${descarga.suggestedFilename()}`)
+  if (readFileSync(await descarga.path(), 'utf8') !== textoNotas) throw new Error('el archivo descargado no es igual al original')
+  paso('archivo: lista de archivos, vista previa de texto y descarga idéntica al original')
+  await page.locator('.sidebar a', { hasText: 'Mapa' }).click()
+  await page.getByText('2 de 2 fotos y videos tienen ubicación').waitFor()
+  const crudo2 = await page.evaluate(async () => JSON.stringify(await (await fetch('/api/videos')).json()))
+  for (const x of ['notas', 'IMG_2000', 'iPhone', 'image/', 'text/', '6.24', 'imagen', 'archivo']) if (crudo2.includes(x)) throw new Error(`el servidor ve "${x}" en claro`)
+  paso('la foto aparece en el mapa; el servidor no ve nombres, tipos ni ubicación')
+  await page.goto(`${base}/#/galeria`)
 
   await page.getByRole('button', { name: /Bloquear/ }).click()
   await page.waitForURL(/#\/entrar/)
   await page.getByRole('button', { name: /Usar el código/ }).click()
   await page.locator('textarea').fill(codigo.toLowerCase())
   await page.getByRole('button', { name: /Abrir con el código/ }).click()
-  await page.waitForURL(/#\/videos/)
-  await page.locator('.thumb img').waitFor()
+  await page.waitForURL(/#\/galeria/)
+  await page.locator('.thumb img').first().waitFor()
   paso('abre con el código de recuperación')
 
   await page.getByRole('button', { name: /Bloquear/ }).click()
   await page.getByRole('button', { name: /Desbloquear con passkey/ }).click()
-  await page.waitForURL(/#\/videos/)
-  await page.locator('.thumb img').waitFor()
+  await page.waitForURL(/#\/galeria/)
+  await page.locator('.thumb img').first().waitFor()
   paso('desbloquea con la passkey (PRF)')
 
   // Migración de un video del MVP (título y etiqueta sin cifrar en la base).
   const Database = (await import('better-sqlite3')).default
   const db = new Database(`${dir}/db/boveda.db`)
-  const vid = db.prepare('SELECT id FROM Video').get().id
+  const vid = db.prepare('SELECT id FROM Video ORDER BY createdAt LIMIT 1').get().id
   db.prepare("UPDATE Video SET meta = NULL, title = 'Video viejo', originalName = 'IMG_9.MOV', duration = 30 WHERE id = ?").run(vid)
   db.prepare("INSERT INTO Tag (name, color, createdAt) VALUES ('Legado', 'danger', 0)").run()
   db.prepare('INSERT INTO _TagToVideo (A, B) VALUES ((SELECT id FROM Tag WHERE name = ?), ?)').run('Legado', vid)

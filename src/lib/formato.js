@@ -27,3 +27,29 @@ export const mesAnio = (d) => {
 }
 
 export const fechaHora = (d) => new Date(d).toLocaleString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+export const extension = (nombre) => (String(nombre ?? '').match(/\.([^.]{1,8})$/)?.[1] ?? '').toUpperCase()
+
+// Ícono según el tipo del archivo.
+export function iconoArchivo(nombre, mime = '') {
+  const e = extension(nombre).toLowerCase()
+  if (mime.startsWith('image/')) return 'cil-image'
+  if (mime.startsWith('video/')) return 'cil-video'
+  if (mime.startsWith('audio/') || ['mp3', 'm4a', 'wav', 'flac', 'aac', 'ogg'].includes(e)) return 'cil-music-note'
+  if (mime === 'application/pdf' || ['pdf', 'doc', 'docx', 'odt', 'rtf', 'pages'].includes(e)) return 'cil-description'
+  if (['xls', 'xlsx', 'csv', 'ods', 'numbers'].includes(e)) return 'cil-spreadsheet'
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(e)) return 'cil-compress'
+  if (mime.startsWith('text/') || ['txt', 'md', 'json'].includes(e)) return 'cil-notes'
+  return 'cil-file'
+}
+
+// Qué se puede ver dentro de la app (lo demás solo se descarga).
+export function vistaPrevia(mime = '', nombre = '') {
+  const e = extension(nombre).toLowerCase()
+  if (mime === 'application/pdf' || e === 'pdf') return 'pdf'
+  if (mime.startsWith('image/')) return 'imagen'
+  if (mime.startsWith('audio/')) return 'audio'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('text/') || ['txt', 'md', 'json', 'csv', 'log'].includes(e)) return 'texto'
+  return null
+}
