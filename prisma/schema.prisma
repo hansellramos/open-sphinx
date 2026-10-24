@@ -104,10 +104,20 @@ model Exportacion {
   duracion  Float?
   progreso  Int       @default(0)
   size      Int       @default(0)
+  estimado  Int? // peso final estimado mientras se crea (por lo que pesan los fragmentos ya hechos)
   createdAt DateTime  @default(now())
   readyAt   DateTime?
   expiresAt DateTime?
 
   @@index([videoId])
   @@index([status, createdAt])
+}
+
+// Lo que pesaron las exportaciones terminadas, por filtro, para estimar las próximas antes de pedirlas:
+// bytes por (píxel de salida × segundo). Solo números, nada del contenido.
+model TasaExport {
+  filtro   String @id // ninguno | a | b | c
+  bytes    Float  @default(0)
+  pixSeg   Float  @default(0)
+  n        Int    @default(0)
 }

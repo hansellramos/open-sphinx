@@ -47,6 +47,7 @@ const viendoExp = computed(() => exportaciones.value.find((e) => e.id === viendo
 const exportando = ref(null) // { alto, filtro } con el diálogo abierto
 const compartiendo = ref(null) // id de la exportación que se está preparando para compartir
 // Tamaños que de verdad reducen (nunca agrandar).
+const estimacion = computed(() => (exportando.value && (exportando.value.alto !== null || exportando.value.filtro !== null) ? exportados.estimar(item.value, exportando.value) : null))
 const altosPosibles = computed(() => [720, 480].filter((a) => a < Math.min(m.value?.width ?? 0, m.value?.height ?? 0)))
 const FILTROS = [
   ['a', 'A', 'manchas medianas, 6 tonos'],
@@ -414,7 +415,7 @@ onBeforeUnmount(() => {
         <div v-for="e in exportaciones" :key="e.id" class="ms-4 mt-1">
           <span class="fw-semibold">{{ etiquetaExport(e) }}</span>
           <span v-if="e.status === 'en_cola'" class="text-body-secondary ms-1">· en cola…</span>
-          <span v-else-if="e.status === 'procesando'" class="text-body-secondary ms-1">· creando… {{ e.progreso }}%</span>
+          <span v-else-if="e.status === 'procesando'" class="text-body-secondary ms-1">· creando… {{ e.progreso }}%{{ e.estimado ? ` · pesará ~${tamano(e.estimado)}` : '' }}</span>
           <template v-else-if="e.status === 'error'">
             <span class="text-danger ms-1">· {{ e.progreso ? `quedó en ${e.progreso}% · ` : '' }}{{ e.error }}</span>
             <CButton color="link" size="sm" class="py-0" @click="reintentarExport(e)">{{ e.progreso ? 'Reanudar' : 'Reintentar' }}</CButton>
@@ -450,6 +451,11 @@ onBeforeUnmount(() => {
       <div v-for="[k, txt] in [[null, 'Ninguno'], ...FILTROS.map(([k, n, d]) => [k, `${n}: posterizado verde/amarillo, ${d}`])]" :key="String(k)" class="form-check">
         <input :id="`filtro-${k}`" v-model="exportando.filtro" class="form-check-input" type="radio" :value="k" />
         <label class="form-check-label" :for="`filtro-${k}`">{{ txt }}</label>
+      </div>
+      <div v-if="estimacion" class="mt-3 export-estimado">
+        Pesará aprox. <strong>{{ tamano(estimacion.min) }} – {{ tamano(estimacion.max) }}</strong>
+        <span class="text-body-secondary">(el original: {{ tamano(item.size) }})</span>
+        <div class="small text-body-secondary">{{ estimacion.propia ? `Según ${estimacion.n === 1 ? 'tu exportación anterior' : `tus ${estimacion.n} exportaciones anteriores`} con este filtro.` : 'Estimación general: se afina con tus próximas exportaciones.' }}</div>
       </div>
       <div class="small text-body-secondary mt-3">Lo hace la NAS (puede tardar varias veces lo que dura el video) y se borra solo a los 7 días.</div>
     </CModalBody>

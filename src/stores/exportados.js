@@ -9,6 +9,7 @@ export const useExportadosStore = defineStore('exportados', () => {
   const auth = useAuthStore()
   const items = ref([])
   const cargada = ref(false)
+  const tasas = ref({}) // { ninguno|a|b|c: { tasa, n } } de las exportaciones ya hechas
   let timer = null
 
   const de = (videoId) => items.value.filter((e) => e.videoId === videoId)
@@ -16,7 +17,9 @@ export const useExportadosStore = defineStore('exportados', () => {
   const pendientes = computed(() => items.value.some((e) => e.status === 'en_cola' || e.status === 'procesando'))
 
   async function cargar() {
-    items.value = await api.get('/exportados')
+    const [es, ts] = await Promise.all([api.get('/exportados'), api.get('/exportados/tasas').catch(() => tasas.value)])
+    items.value = es
+    tasas.value = ts
     cargada.value = true
     programar()
   }
@@ -55,5 +58,24 @@ export const useExportadosStore = defineStore('exportados', () => {
     },
   )
 
-  return { items, cargada, de, ocupado, cargar, pedir, reemplazar, borrar }
+  // Cuánto pesará, antes de pedirla: duración × píxeles de salida × bytes por píxel y segundo. Sin datos propios se
+  // usa una tasa típica (H.264 CRF 26 de video de celular; con filtro mucho menos, por los colores planos) con un
+  // rango amplio; con exportaciones ya hechas se usa lo que pesaron, y el rango se cierra a medida que hay más.
+  function estimar(v, { alto = null, filtro = null }) {
+    const dur = v?.m?.duration, w = v?.m?.width, h = v?.m?.height
+    if (!dur || !w || !h) return null
+    const corto = Math.min(w, h)
+    const k = alto && alto < corto ? alto / corto : 1
+    const pix = Math.round((w * k) / 2) * 2 * Math.round((h * k) / 2) * 2
+    const propia = tasas.value[filtro ?? 'ninguno']
+    const [tasa, bajo, alto_, audio] = propia
+      ? [propia.tasa, propia.n >= 3 ? 0.8 : 0.7, propia.n >= 3 ? 1.25 : 1.4, 0]
+      : filtro
+        ? [0.08, 0.4, 2.5, 12_500]
+        : [0.33, 0.5, 1.6, 12_500]
+    const base = dur * (pix * tasa + audio)
+    return { min: base * bajo, max: base * alto_, propia: !!propia, n: propia?.n ?? 0 }
+  }
+
+  return { items, cargada, tasas, de, ocupado, cargar, pedir, reemplazar, borrar, estimar }
 })

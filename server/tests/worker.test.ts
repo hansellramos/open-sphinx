@@ -235,6 +235,13 @@ test('exportar: 720p y 480p con filtro, cifrado con la clave prestada, sin dejar
     assert.ok(readdirSync(exportDir(v.id, e.id)).every((f) => f === 'index.m3u8' || f.endsWith('.enc')), 'solo cifrado')
   }
   assert.deepEqual(readdirSync(paths.tmp), [], 'no deja temporales en RAM')
+  // Lo que pesaron queda como tasa por filtro (para estimar las próximas); el estimado en curso se limpia.
+  const tasas = Object.fromEntries((await prisma.tasaExport.findMany()).map((t) => [t.filtro, t]))
+  const h720 = await prisma.exportacion.findUniqueOrThrow({ where: { id: e720.id } })
+  assert.equal(h720.estimado, null)
+  assert.equal(tasas.ninguno.n, 1)
+  assert.ok(Math.abs(tasas.ninguno.bytes - h720.size) < 1 && Math.abs(tasas.ninguno.pixSeg - 1280 * 720 * 14) < 1280 * 720 * 0.6)
+  assert.equal(tasas.a.n, 1)
 
   const mp4 = await rearmar(key, exportDir(v.id, e720.id), 'exp-720.mp4')
   assert.equal(dimensiones(mp4), 'h264,1280,720')

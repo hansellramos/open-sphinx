@@ -65,6 +65,7 @@ onMounted(async () => {
         <div class="small">{{ etiquetaExport(e) }}</div>
         <div class="small text-body-secondary d-flex flex-wrap gap-2 align-items-center">
           <CBadge :color="COLOR[e.status]">{{ ESTADO[e.status] }}{{ e.status === 'procesando' ? ` ${e.progreso}%` : '' }}</CBadge>
+          <span v-if="e.status === 'procesando' && e.estimado" class="small text-body-secondary">pesará ~{{ tamano(e.estimado) }}</span>
           <template v-if="e.status === 'lista'">
             <span>{{ tamano(e.size) }}</span><span>{{ venceEn(e.expiresAt) }}</span>
           </template>

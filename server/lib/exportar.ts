@@ -203,6 +203,12 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
     alCifrar: async (s) => {
       estado.segs.push(s)
       await writeFile(archivoEstado, JSON.stringify(estado))
+      // Peso final estimado: lo que pesa lo hecho, llevado a la duración total.
+      const t = estado.segs.reduce((a, x) => a + x.dur, 0)
+      if (e.duracion && t > 0) {
+        const estimado = Math.round((estado.segs.reduce((a, x) => a + x.size, 0) / t) * e.duracion)
+        await prisma.exportacion.update({ where: { id: e.id }, data: { estimado } }).catch(() => {})
+      }
     },
   })
   try {
@@ -238,10 +244,21 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
   for (const f of await readdir(parcial)) if (f.endsWith('.enc')) size += (await stat(path.join(parcial, f))).size
   await rm(final, { recursive: true, force: true })
   await rename(parcial, final)
+  // Para estimar las próximas: bytes por píxel de salida y por segundo, según el filtro.
+  const { W, H } = tamanoSalida(w, h, e.alto)
+  const dur = estado.segs.reduce((a, x) => a + x.dur, 0)
+  if (dur > 0) {
+    const filtroTasa = filtro ?? 'ninguno'
+    await prisma.tasaExport.upsert({
+      where: { filtro: filtroTasa },
+      create: { filtro: filtroTasa, bytes: size, pixSeg: W * H * dur, n: 1 },
+      update: { bytes: { increment: size }, pixSeg: { increment: W * H * dur }, n: { increment: 1 } },
+    })
+  }
   const ahora = new Date()
   await prisma.exportacion.update({
     where: { id: e.id },
-    data: { status: 'lista', progreso: 100, size, readyAt: ahora, expiresAt: new Date(ahora.getTime() + VIDA_MS), clave: null, error: null },
+    data: { status: 'lista', progreso: 100, size, estimado: null, readyAt: ahora, expiresAt: new Date(ahora.getTime() + VIDA_MS), clave: null, error: null },
   })
 }
 

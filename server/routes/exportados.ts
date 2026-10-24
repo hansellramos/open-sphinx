@@ -11,6 +11,12 @@ r.get('/', async (req, res) => {
   res.json(es.map(exportPublica))
 })
 
+// Para estimar cuánto pesará una exportación antes de pedirla (lo que pesaron las anteriores, por filtro).
+r.get('/tasas', async (req, res) => {
+  const ts = await prisma.tasaExport.findMany()
+  res.json(Object.fromEntries(ts.filter((t) => t.pixSeg > 0).map((t) => [t.filtro, { tasa: t.bytes / t.pixSeg, n: t.n }])))
+})
+
 const VALIDO = /^(index\.m3u8|init\.mp4|seg_\d{5}\.m4s)$/
 r.get('/:id/:nombre', async (req, res) => {
   const { id, nombre } = req.params
