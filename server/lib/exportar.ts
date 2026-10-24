@@ -12,7 +12,7 @@ import { prisma } from '../db.ts'
 import { paths, videoDir } from './paths.ts'
 import { HLS, cifradorHLS, conPrioridadBaja, entradasHLS, listaVOD } from './media.ts'
 import { decryptBlob, fromB64u, importFileKey } from '../../shared/crypto.js'
-import { desplazar, escalas } from './mp4.ts'
+import { desplazar, escalas, ultimaSecuencia } from './mp4.ts'
 
 export const VIDA_MS = 7 * 24 * 3600 * 1000
 export const ALTOS = [720, 480]
@@ -199,12 +199,14 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
     ultimo = Date.now()
     await prisma.exportacion.update({ where: { id: e.id }, data: { progreso: Math.min(99, Math.max(0, Math.round((t / e.duracion) * 100))) } }).catch(() => {})
   }
-  // Al reanudar, ffmpeg empieza los tiempos otra vez en 0: se corrigen fragmento por fragmento (lib/mp4.ts).
+  // Al reanudar, ffmpeg empieza los tiempos y la numeración de fragmentos otra vez en 0: se corrigen fragmento por fragmento (lib/mp4.ts).
   let ajustar: ((plano: Buffer) => void) | undefined
   if (hecho) {
     const ts = escalas(new Uint8Array(await decryptBlob(key, await readFile(path.join(parcial, 'init.mp4.enc')))))
+    const ultimo = estado.segs.at(-1)!.nombre
+    const sec = ultimaSecuencia(new Uint8Array(await decryptBlob(key, await readFile(path.join(parcial, `${ultimo}.enc`)))))
     ajustar = (plano) => {
-      if (!desplazar(plano, hecho, ts)) throw new Error('No se pudieron corregir los tiempos del fragmento')
+      if (!desplazar(plano, hecho, ts, sec)) throw new Error('No se pudieron corregir los tiempos del fragmento')
     }
   }
   const c = cifradorHLS(work, parcial, key, {

@@ -1,6 +1,7 @@
 // Lo mínimo de MP4 fragmentado para corregir tiempos: al reanudar una exportación, ffmpeg empieza otra vez en 0
 // (no respeta -output_ts_offset con HLS fMP4), así que a cada fragmento nuevo se le suma lo ya hecho en el
-// tiempo de decodificación de cada pista (tfdt) y en el sidx si lo hay.
+// tiempo de decodificación de cada pista (tfdt) y en el sidx si lo hay. También vuelve a numerar los fragmentos
+// desde 1 (mfhd): el reproductor de Apple (iPhone, WhatsApp) deja de leer un MP4 donde el número no sigue creciendo.
 
 type Caja = { tipo: string; ini: number; fin: number; cuerpo: number }
 
@@ -42,8 +43,19 @@ export function escalas(init: Uint8Array) {
   return out
 }
 
-// Suma `segundos` a los tiempos de un fragmento (en el lugar). Devuelve cuántos tfdt cambió.
-export function desplazar(seg: Uint8Array, segundos: number, ts: Map<number, number>) {
+// Número más alto de fragmento (mfhd) dentro de un segmento; 0 si no tiene.
+export function ultimaSecuencia(seg: Uint8Array) {
+  const dv = new DataView(seg.buffer, seg.byteOffset, seg.byteLength)
+  let max = 0
+  for (const c of cajas(seg)) {
+    const mfhd = c.tipo === 'moof' && hijo(seg, c, 'mfhd')
+    if (mfhd) max = Math.max(max, dv.getUint32(mfhd.cuerpo + 4))
+  }
+  return max
+}
+
+// Suma `segundos` a los tiempos de un fragmento y `secuencia` a su número (en el lugar). Devuelve cuántos tfdt cambió.
+export function desplazar(seg: Uint8Array, segundos: number, ts: Map<number, number>, secuencia = 0) {
   const dv = new DataView(seg.buffer, seg.byteOffset, seg.byteLength)
   let n = 0
   for (const c of cajas(seg)) {
@@ -55,6 +67,8 @@ export function desplazar(seg: Uint8Array, segundos: number, ts: Map<number, num
       else dv.setUint32(c.cuerpo + 12, dv.getUint32(c.cuerpo + 12) + Number(d))
     }
     if (c.tipo !== 'moof') continue
+    const mfhd = hijo(seg, c, 'mfhd')
+    if (mfhd) dv.setUint32(mfhd.cuerpo + 4, dv.getUint32(mfhd.cuerpo + 4) + secuencia)
     for (const traf of cajas(seg, c.cuerpo, c.fin)) {
       if (traf.tipo !== 'traf') continue
       const tfhd = hijo(seg, traf, 'tfhd')

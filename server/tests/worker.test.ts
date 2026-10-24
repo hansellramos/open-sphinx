@@ -456,4 +456,10 @@ test('exportar se reanuda desde el último fragmento cifrado', async () => {
     assert.ok(salto < 0.5, `${pista}: hueco de ${salto} s`)
     assert.ok(Math.abs(pts.at(-1) - 20) < 0.6, `${pista}: termina en ${pts.at(-1)} s`)
   }
+  // La numeración de fragmentos sigue creciendo (si vuelve a 1, el reproductor de Apple corta ahí el video).
+  const { ultimaSecuencia } = await import('../lib/mp4.ts')
+  const nums = []
+  const b = readFileSync(mp4)
+  for (let p = 0; p + 8 <= b.length; p += b.readUInt32BE(p)) if (b.toString('latin1', p + 4, p + 8) === 'moof') nums.push(ultimaSecuencia(b.subarray(p, p + b.readUInt32BE(p))))
+  assert.ok(nums.length >= 3 && nums.every((x, i) => x === i + 1), `fragmentos numerados ${nums}`)
 })

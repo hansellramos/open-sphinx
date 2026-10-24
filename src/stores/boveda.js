@@ -6,6 +6,7 @@ import { defineStore } from 'pinia'
 import { api } from '@/services/api'
 import { sufijoExport } from '@/lib/formato'
 import { conRotacion, leerRotacion, sumarRotacion } from '@/lib/rotacion'
+import { numerarFragmentos } from '@/lib/fragmentos'
 import { useAuthStore } from '@/stores/auth'
 import { aadParte, decryptBlob, decryptJSON, encryptJSON, newFileKey, nombreParte, sealFileKey } from '@shared/crypto.js'
 
@@ -304,8 +305,11 @@ export const useBovedaStore = defineStore('boveda', () => {
     // exportaciones ya salen derechas (ffmpeg aplica el del init al recodificar), así que en ellas solo cuenta el elegido.
     const init = new Uint8Array(await decryptBlob(key, await bajar(v, 'init.mp4', ruta)))
     const partes = [conRotacion(init, sumarRotacion(exp ? 0 : leerRotacion(init), v.m.rotacion))]
+    let n = 1
     for (let i = 0; i < segs.length; i++) {
-      partes.push(await decryptBlob(key, await bajar(v, segs[i], ruta)))
+      const seg = await decryptBlob(key, await bajar(v, segs[i], ruta))
+      n = numerarFragmentos(seg, n)
+      partes.push(seg)
       progreso?.((i + 1) / segs.length)
     }
     return new File(partes, `${base}${exp ? sufijoExport(exp) : ''}.mp4`, { type: 'video/mp4' })
