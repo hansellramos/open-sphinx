@@ -168,12 +168,31 @@ test('un video que no se puede reproducir se guarda como archivo', async () => {
   assert.equal((await original(key, vdir, meta.parts)).toString(), 'no es un video de verdad')
 })
 
-test('versión ligera: 720p cifrada con la clave prestada, sin dejar la clave, y vence', async () => {
+test('tamaño de exportación: lado corto pedido, nunca agrandar, respeta verticales', async () => {
+  const { tamanoSalida } = await import('../lib/exportar.ts')
+  assert.deepEqual(tamanoSalida(1920, 1080, 720), { W: 1280, H: 720 })
+  assert.deepEqual(tamanoSalida(1080, 1920, 480), { W: 480, H: 854 })
+  assert.deepEqual(tamanoSalida(640, 360, 720), { W: 640, H: 360 })
+  assert.deepEqual(tamanoSalida(1920, 1080, null), { W: 1920, H: 1080 })
+})
+
+// Rearma el MP4 de una exportación descifrando sus archivos.
+async function rearmar(key, edir, nombre) {
+  const segs = readFileSync(path.join(edir, 'index.m3u8'), 'utf8').split('\n').filter((x) => /^seg_\d{5}\.m4s$/.test(x))
+  const plano = [Buffer.from(await c.decryptBlob(key, readFileSync(path.join(edir, 'init.mp4.enc'))))]
+  for (const s of segs) plano.push(Buffer.from(await c.decryptBlob(key, readFileSync(path.join(edir, `${s}.enc`)))))
+  const out = path.join(dir, nombre)
+  writeFileSync(out, Buffer.concat(plano))
+  return out
+}
+const dimensiones = (f) => execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height', '-of', 'csv=p=0', f]).toString().trim()
+
+test('exportar: 720p y 480p con filtro, cifrado con la clave prestada, sin dejar la clave, y vence', async () => {
   const priv = await nuevaBoveda()
-  const { cicloLigera, vencerLigeras, recuperarLigeras } = await import('../lib/ligera.ts')
-  const uploadId = 'up-ligera'
+  const { cicloExportacion, vencerExportaciones, recuperarExportaciones, exportDir } = await import('../lib/exportar.ts')
+  const uploadId = 'up-exportar'
   const input = path.join(paths.subidas, uploadId)
-  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1920x1080:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440',
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440',
     '-t', '14', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac', '-f', 'mov', input])
   writeFileSync(`${input}.json`, '{}')
   const v = await prisma.video.create({ data: { originalName: 'GRANDE.MOV', uploadId } })
@@ -181,45 +200,54 @@ test('versión ligera: 720p cifrada con la clave prestada, sin dejar la clave, y
   const { listo, key, vdir } = await abrir(priv, v.id)
 
   // El navegador presta los bytes de la clave del video.
-  const raw = await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse(listo.keyWrap))
-  const l = await prisma.ligera.create({ data: { videoId: v.id, clave: c.b64u(raw), duracion: 14 } })
-  assert.equal(await cicloLigera(), true)
-  const hecha = await prisma.ligera.findUniqueOrThrow({ where: { id: l.id } })
-  assert.equal(hecha.status, 'lista', hecha.error ?? '')
-  assert.equal(hecha.clave, null, 'no queda la clave')
-  assert.ok(hecha.size > 0 && hecha.expiresAt.getTime() - Date.now() > 6.9 * 24 * 3600e3)
-  const ldir = path.join(vdir, 'ligera')
-  const files = readdirSync(ldir)
-  assert.ok(files.every((f) => f === 'index.m3u8' || f.endsWith('.enc')), 'solo cifrado')
+  const clave = c.b64u(await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse(listo.keyWrap)))
+  const e720 = await prisma.exportacion.create({ data: { videoId: v.id, clave, duracion: 14, alto: 720 } })
+  const eFiltro = await prisma.exportacion.create({ data: { videoId: v.id, clave, duracion: 14, alto: 480, filtro: 'a' } })
+  assert.equal(await cicloExportacion(), true)
+  assert.equal((await prisma.exportacion.findUniqueOrThrow({ where: { id: eFiltro.id } })).status, 'en_cola', 'de a una')
+  assert.equal(await cicloExportacion(), true)
+  for (const e of [e720, eFiltro]) {
+    const hecha = await prisma.exportacion.findUniqueOrThrow({ where: { id: e.id } })
+    assert.equal(hecha.status, 'lista', hecha.error ?? '')
+    assert.equal(hecha.clave, null, 'no queda la clave')
+    assert.ok(hecha.size > 0 && hecha.expiresAt.getTime() - Date.now() > 6.9 * 24 * 3600e3)
+    assert.ok(readdirSync(exportDir(v.id, e.id)).every((f) => f === 'index.m3u8' || f.endsWith('.enc')), 'solo cifrado')
+  }
   assert.deepEqual(readdirSync(paths.tmp), [], 'no deja temporales')
-  const segs = readFileSync(path.join(ldir, 'index.m3u8'), 'utf8').split('\n').filter((x) => /^seg_\d{5}\.m4s$/.test(x))
-  const plano = [Buffer.from(await c.decryptBlob(key, readFileSync(path.join(ldir, 'init.mp4.enc'))))]
-  for (const s of segs) plano.push(Buffer.from(await c.decryptBlob(key, readFileSync(path.join(ldir, `${s}.enc`)))))
-  const out = path.join(dir, 'ligera.mp4')
-  writeFileSync(out, Buffer.concat(plano))
-  const [ancho, alto, codec] = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,codec_name', '-of', 'csv=p=0:s=,', out]).toString().trim().split(',').map((x) => (/^\d+$/.test(x) ? Number(x) : x)).sort((a, b) => (typeof a === 'string' ? 1 : -1))
-  assert.deepEqual([alto, ancho].sort(), [1280, 720].sort())
-  assert.ok(codec === 'h264')
-  const d = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', out]).toString())
+
+  const mp4 = await rearmar(key, exportDir(v.id, e720.id), 'exp-720.mp4')
+  assert.equal(dimensiones(mp4), 'h264,1280,720')
+  const d = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).toString())
   assert.ok(Math.abs(d - 14) < 0.6, `duración ${d}`)
 
+  // Con filtro: 480p y todos los píxeles en la paleta verde→amarillo (verde manda, poco azul).
+  const filtrado = await rearmar(key, exportDir(v.id, eFiltro.id), 'exp-480-a.mp4')
+  assert.equal(dimensiones(filtrado), 'h264,854,480')
+  const crudo = execFileSync('ffmpeg', ['-loglevel', 'error', '-ss', '5', '-i', filtrado, '-frames:v', '1', '-vf', 'scale=107:60', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])
+  let fuera = 0
+  for (let i = 0; i < crudo.length; i += 3) {
+    const [r, g, b] = [crudo[i], crudo[i + 1], crudo[i + 2]]
+    if (!(g >= r - 12 && g >= b + 20)) fuera++
+  }
+  assert.ok(fuera / (crudo.length / 3) < 0.03, `píxeles fuera de la paleta: ${fuera}`)
+
   // Clave equivocada → error y sin clave guardada.
-  await prisma.ligera.update({ where: { id: l.id }, data: { status: 'en_cola', clave: c.b64u(new Uint8Array(32)) } })
-  await cicloLigera()
-  const mala = await prisma.ligera.findUniqueOrThrow({ where: { id: l.id } })
+  await prisma.exportacion.update({ where: { id: e720.id }, data: { status: 'en_cola', clave: c.b64u(new Uint8Array(32)) } })
+  await cicloExportacion()
+  const mala = await prisma.exportacion.findUniqueOrThrow({ where: { id: e720.id } })
   assert.equal(mala.status, 'error')
   assert.match(mala.error, /clave no corresponde/)
   assert.equal(mala.clave, null)
 
   // Interrumpida: al arrancar queda en error.
-  await prisma.ligera.update({ where: { id: l.id }, data: { status: 'procesando' } })
-  await recuperarLigeras()
-  assert.equal((await prisma.ligera.findUniqueOrThrow({ where: { id: l.id } })).status, 'error')
+  await prisma.exportacion.update({ where: { id: e720.id }, data: { status: 'procesando' } })
+  await recuperarExportaciones()
+  assert.equal((await prisma.exportacion.findUniqueOrThrow({ where: { id: e720.id } })).status, 'error')
 
-  // Vence: se borran la carpeta y la fila.
-  await prisma.ligera.update({ where: { id: l.id }, data: { status: 'lista', expiresAt: new Date(Date.now() - 1000) } })
-  assert.equal(await vencerLigeras(), 1)
-  assert.ok(!existsSync(ldir))
-  assert.equal(await prisma.ligera.count(), 0)
-  assert.ok(existsSync(path.join(vdir, 'init.mp4.enc')), 'el video completo sigue')
+  // Vencen: se borran las carpetas y las filas; el video completo sigue.
+  await prisma.exportacion.updateMany({ data: { status: 'lista', expiresAt: new Date(Date.now() - 1000) } })
+  assert.equal(await vencerExportaciones(), 2)
+  assert.ok(!existsSync(exportDir(v.id, eFiltro.id)))
+  assert.equal(await prisma.exportacion.count(), 0)
+  assert.ok(existsSync(path.join(vdir, 'init.mp4.enc')))
 })

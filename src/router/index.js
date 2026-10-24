@@ -20,7 +20,7 @@ const routes = [
       // Enlaces de antes (cuando solo había videos)
       { path: 'videos', redirect: (to) => ({ path: '/galeria', query: to.query }) },
       { path: 'videos/:id', redirect: (to) => `/ver/${to.params.id}` },
-      { path: 'ligeras', name: 'Ligeras', component: () => import('@/views/boveda/LigerasView.vue') },
+      { path: 'exportados', name: 'Exportados', component: () => import('@/views/boveda/ExportadosView.vue') },
       { path: 'subir', name: 'Subir', component: () => import('@/views/boveda/SubirView.vue') },
       { path: 'ajustes', name: 'Ajustes', component: () => import('@/views/ajustes/AjustesView.vue') },
     ],

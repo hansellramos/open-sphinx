@@ -62,7 +62,7 @@ model Video {
   createdAt    DateTime  @default(now())
   readyAt      DateTime?
   jobs         Job[]
-  ligera       Ligera?
+  exportaciones Exportacion[]
   tags         Tag[] // legado
 }
 
@@ -90,12 +90,14 @@ model Job {
   @@index([status, createdAt])
 }
 
-// Versión ligera (720p) de un video, a pedido y por 7 días. `clave` es la del video prestada por el navegador:
-// solo existe mientras está en cola; el worker la borra al tomar el trabajo.
-model Ligera {
+// Exportación de un video (más pequeño y/o con filtro), a pedido y por 7 días. `clave` es la del video prestada
+// por el navegador: solo existe mientras está en cola; el worker la borra al tomar el trabajo.
+model Exportacion {
   id        String    @id @default(uuid())
-  videoId   String    @unique
+  videoId   String
   video     Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  alto      Int? // lado corto pedido (720, 480); null = tamaño original
+  filtro    String? // a | b | c (posterizado); null = sin filtro
   status    String    @default("en_cola") // en_cola | procesando | lista | error
   error     String?
   clave     String?
@@ -105,4 +107,7 @@ model Ligera {
   createdAt DateTime  @default(now())
   readyAt   DateTime?
   expiresAt DateTime?
+
+  @@index([videoId])
+  @@index([status, createdAt])
 }

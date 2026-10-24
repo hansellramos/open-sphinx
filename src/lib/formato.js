@@ -79,7 +79,11 @@ export function fechaDelNombre(nombre) {
   return `${a}-${me}-${d}T${dos(h)}:${mi}`
 }
 
-// Cuánto le queda a algo que vence (versiones ligeras).
+// Opciones de una exportación de video, para mostrar y para el nombre del archivo.
+export const etiquetaExport = (e) => [e.alto ? `${e.alto}p` : 'Tamaño original', e.filtro && `filtro ${e.filtro.toUpperCase()}`].filter(Boolean).join(' · ')
+export const sufijoExport = (e) => `${e.alto ? `-${e.alto}p` : ''}${e.filtro ? `-filtro-${e.filtro}` : ''}`
+
+// Cuánto le queda a algo que vence (exportaciones).
 export function venceEn(d) {
   const h = (new Date(d) - Date.now()) / 3600e3
   if (h < 1) return 'vence en menos de una hora'

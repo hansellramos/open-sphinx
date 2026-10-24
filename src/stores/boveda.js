@@ -4,6 +4,7 @@
 import { ref, computed, watch, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/services/api'
+import { sufijoExport } from '@/lib/formato'
 import { useAuthStore } from '@/stores/auth'
 import { aadParte, decryptBlob, decryptJSON, encryptJSON, newFileKey, nombreParte, sealFileKey } from '@shared/crypto.js'
 
@@ -246,8 +247,8 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   // ---------- originales (fotos y archivos, en partes) ----------
 
-  async function bajar(v, nombre, ruta = 'archivo') {
-    const res = await fetch(`/api/videos/${v.id}/${ruta}/${nombre}`, { credentials: 'include' })
+  async function bajar(v, nombre, base = `/api/videos/${v.id}/archivo`) {
+    const res = await fetch(`${base}/${nombre}`, { credentials: 'include' })
     if (!res.ok) throw new Error(res.status === 401 ? 'Sesión expirada' : 'No se pudo bajar el archivo')
     return res.arrayBuffer()
   }
@@ -281,8 +282,8 @@ export const useBovedaStore = defineStore('boveda', () => {
   }
 
   // Para compartir (WhatsApp, etc.): la foto como se ve (JPEG si era HEIC), el video armado como un
-  // MP4 (init + fragmentos, ya descifrados; `ligera` = la versión 720p) y los archivos tal cual. Todo en memoria.
-  async function paraCompartir(v, progreso, ligera = false) {
+  // MP4 (init + fragmentos, ya descifrados; `exp` = una exportación del video) y los archivos tal cual. Todo en memoria.
+  async function paraCompartir(v, progreso, exp = null) {
     const t = tipo(v)
     const base = (v.m.originalName || v.m.title || 'archivo').replace(/\.[^.]+$/, '')
     if (t === 'imagen') {
@@ -291,7 +292,7 @@ export const useBovedaStore = defineStore('boveda', () => {
     }
     if (t === 'archivo') return new File([await original(v, progreso)], v.m.originalName || base, { type: v.m.mime || 'application/octet-stream' })
     const key = await auth.claveDe(v)
-    const ruta = ligera ? 'ligera' : 'archivo'
+    const ruta = exp ? `/api/exportados/${exp.id}` : undefined
     const lista = new TextDecoder().decode(await bajar(v, 'index.m3u8', ruta))
     const segs = lista.split('\n').map((l) => l.trim()).filter((l) => /^seg_\d{5}\.m4s$/.test(l))
     const partes = [await decryptBlob(key, await bajar(v, 'init.mp4', ruta))]
@@ -299,7 +300,7 @@ export const useBovedaStore = defineStore('boveda', () => {
       partes.push(await decryptBlob(key, await bajar(v, segs[i], ruta)))
       progreso?.((i + 1) / segs.length)
     }
-    return new File(partes, `${base}${ligera ? '-720p' : ''}.mp4`, { type: 'video/mp4' })
+    return new File(partes, `${base}${exp ? sufijoExport(exp) : ''}.mp4`, { type: 'video/mp4' })
   }
 
   // Hoja de compartir del sistema; si el navegador no la tiene, se descarga.

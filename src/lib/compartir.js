@@ -10,14 +10,14 @@ export function useCompartir() {
   const progreso = ref(null)
   let listo = null // { id, file }
 
-  // `ligera`: la versión 720p de un video.
-  async function compartir(v, file = null, ligera = false) {
-    const id = `${v.id}:${ligera}`
+  // `exp`: una exportación del video (más pequeña o con filtro).
+  async function compartir(v, file = null, exp = null) {
+    const id = `${v.id}:${exp?.id ?? ''}`
     try {
       if (!file && listo?.id === id) file = listo.file
       if (!file) {
         progreso.value = 0
-        file = await boveda.paraCompartir(v, (p) => (progreso.value = Math.round(p * 100)), ligera)
+        file = await boveda.paraCompartir(v, (p) => (progreso.value = Math.round(p * 100)), exp)
         listo = { id, file }
       }
       progreso.value = null

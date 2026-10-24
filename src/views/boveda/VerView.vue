@@ -8,9 +8,9 @@ import Hls from 'hls.js'
 import { useAuthStore } from '@/stores/auth'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
-import { useLigerasStore } from '@/stores/ligeras'
+import { useExportadosStore } from '@/stores/exportados'
 import { decryptBlob } from '@shared/crypto.js'
-import { aLocal, deLocal, duracion, extension, fechaCorta, fechaHora, iconoArchivo, tamano, venceEn, vistaPrevia } from '@/lib/formato'
+import { aLocal, deLocal, duracion, extension, fechaCorta, fechaHora, iconoArchivo, tamano, venceEn, vistaPrevia, etiquetaExport } from '@/lib/formato'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
 import VisorCompleto from '@/components/elementos/VisorCompleto.vue'
@@ -38,10 +38,20 @@ const visor = ref(false)
 let archivoFoto = null // la foto ya descifrada, para compartirla sin volver a bajarla
 let hls = null
 const { progreso: progresoCompartir, compartir } = useCompartir()
-const { progreso: progresoLigera, compartir: compartirLigera } = useCompartir()
-const ligeras = useLigerasStore()
-const ligera = computed(() => (item.value ? ligeras.de(item.value.id) : null))
-const viendoLigera = ref(route.query.ligera === '1')
+const { progreso: progresoExp, compartir: compartirExp } = useCompartir()
+const exportados = useExportadosStore()
+const exportaciones = computed(() => (item.value ? exportados.de(item.value.id) : []))
+const viendo = ref(typeof route.query.exp === 'string' ? route.query.exp : null) // id de la exportación que se reproduce
+const viendoExp = computed(() => exportaciones.value.find((e) => e.id === viendo.value) ?? null)
+const exportando = ref(null) // { alto, filtro } con el diálogo abierto
+const compartiendo = ref(null) // id de la exportación que se está preparando para compartir
+// Tamaños que de verdad reducen (nunca agrandar).
+const altosPosibles = computed(() => [720, 480].filter((a) => a < Math.min(m.value?.width ?? 0, m.value?.height ?? 0)))
+const FILTROS = [
+  ['a', 'A', 'manchas medianas, 6 tonos'],
+  ['b', 'B', 'más detalle, 8 tonos'],
+  ['c', 'C', 'más difuso, 5 tonos'],
+]
 
 const item = computed(() => boveda.items.find((v) => v.id === route.params.id))
 const m = computed(() => item.value?.m)
@@ -154,24 +164,34 @@ async function reproducir() {
   hls.on(Hls.Events.ERROR, (_, d) => {
     if (d.fatal) error.value = `Error de reproducción: ${d.details}`
   })
-  hls.loadSource(`/api/videos/${item.value.id}/${viendoLigera.value ? 'ligera' : 'archivo'}/index.m3u8`)
+  hls.loadSource(viendoExp.value ? `/api/exportados/${viendoExp.value.id}/index.m3u8` : `/api/videos/${item.value.id}/archivo/index.m3u8`)
   hls.attachMedia(el.value)
 }
 
-// Versión ligera (720p): la hace la NAS con la clave de este video, que se le presta solo para eso.
-const pedirLigera = accion(async () => {
-  await ligeras.pedir(item.value)
-  toast.info('En cola: la NAS la está preparando. Dura 7 días.')
+// Exportar (más pequeño y/o con filtro): lo hace la NAS con la clave de este video, que se le presta solo para eso.
+const pedirExport = accion(async () => {
+  await exportados.pedir(item.value, exportando.value)
+  exportando.value = null
+  toast.info('En cola: la NAS lo está preparando. Dura 7 días.')
 })
-const borrarLigera = accion(async () => {
-  await ligeras.borrar(ligera.value)
-  if (viendoLigera.value) verLigera(false)
-  toast.ok('Versión ligera borrada')
+const reintentarExport = accion((e) => exportados.pedir(item.value, { alto: e.alto, filtro: e.filtro }))
+const borrarExport = accion(async (e) => {
+  await exportados.borrar(e)
+  if (viendo.value === e.id) await ver(null)
+  toast.ok('Exportación borrada')
 })
-const verLigera = accion(async (si) => {
-  viendoLigera.value = si
+const ver = accion(async (id) => {
+  viendo.value = id
   await reproducir()
 })
+async function compartirE(e) {
+  compartiendo.value = e.id
+  try {
+    await compartirExp(item.value, null, e)
+  } finally {
+    compartiendo.value = null
+  }
+}
 
 const mostrarPrevia = accion(async () => {
   cargando.value = true
@@ -192,8 +212,8 @@ onMounted(async () => {
     if (!item.value) return (error.value = 'No encontrado')
     if (!m.value) return (error.value = 'Todavía se está procesando')
     if (tipo.value === 'video') {
-      await ligeras.cargar().catch(() => {})
-      if (viendoLigera.value && ligera.value?.status !== 'lista') viendoLigera.value = false
+      await exportados.cargar().catch(() => {})
+      if (viendoExp.value?.status !== 'lista') viendo.value = null
       await reproducir()
     }
     else if (tipo.value === 'imagen' || (previa.value && item.value.size <= PREVIA_AUTO)) await mostrarPrevia()
@@ -237,7 +257,10 @@ onBeforeUnmount(() => {
   <div class="ver-medio" @touchstart.passive="toqueInicio" @touchend.passive="tipo !== 'video' && toqueFin($event)">
   <!-- disableremoteplayback: requerido por ManagedMediaSource en iPhone -->
   <video v-if="tipo === 'video'" v-show="!error" ref="el" class="player" controls playsinline autoplay disableremoteplayback></video>
-  <div v-if="tipo === 'video' && viendoLigera" class="small text-body-secondary mt-1"><CIcon icon="cil-speedometer" size="sm" class="me-1" />Viendo la versión ligera (720p)</div>
+  <div v-if="tipo === 'video' && viendoExp" class="small text-body-secondary mt-1">
+    <CIcon icon="cil-share-all" size="sm" class="me-1" />Viendo la exportación ({{ etiquetaExport(viendoExp) }})
+    <CButton color="link" size="sm" class="py-0" @click="ver(null)">Ver el original</CButton>
+  </div>
 
   <template v-else-if="m">
     <div v-if="cargando" class="visor d-flex align-items-center justify-content-center">
@@ -291,24 +314,26 @@ onBeforeUnmount(() => {
       </div>
       <div v-if="m.device" class="mb-1"><CIcon icon="cil-devices" class="me-2 text-body-secondary" />{{ m.device }}</div>
       <div v-if="tipo === 'video'" class="mb-1">
-        <CIcon icon="cil-speedometer" class="me-2 text-body-secondary" />Versión ligera (720p):
-        <CButton v-if="!ligera" color="link" size="sm" class="py-0" @click="pedirLigera">Crear</CButton>
-        <span v-else-if="ligera.status === 'en_cola'" class="text-body-secondary ms-1">en cola…</span>
-        <span v-else-if="ligera.status === 'procesando'" class="text-body-secondary ms-1">creando… {{ ligera.progreso }}%</span>
-        <template v-else-if="ligera.status === 'error'">
-          <span class="text-danger ms-1">{{ ligera.error }}</span>
-          <CButton color="link" size="sm" class="py-0" @click="pedirLigera">Reintentar</CButton>
-        </template>
-        <template v-else>
-          <span class="text-body-secondary ms-1">{{ tamano(ligera.size) }} · {{ venceEn(ligera.expiresAt) }}</span>
-          <div class="d-flex flex-wrap gap-1 mt-1 ms-4">
-            <CButton color="secondary" variant="outline" size="sm" @click="verLigera(!viendoLigera)">{{ viendoLigera ? 'Ver completa' : 'Ver ligera' }}</CButton>
-            <CButton color="secondary" variant="outline" size="sm" :disabled="progresoLigera !== null" title="Compartir la versión ligera" @click="compartirLigera(item, null, true)">
-              <CIcon icon="cil-share-boxed" class="me-1" />{{ progresoLigera !== null ? `${progresoLigera}%` : 'Compartir ligera' }}
+        <CIcon icon="cil-share-all" class="me-2 text-body-secondary" />Exportar
+        <CButton color="link" size="sm" class="py-0" title="Exportar más pequeño o con filtro" @click="exportando = { alto: altosPosibles[0] ?? null, filtro: null }">Nueva…</CButton>
+        <div v-for="e in exportaciones" :key="e.id" class="ms-4 mt-1">
+          <span class="fw-semibold">{{ etiquetaExport(e) }}</span>
+          <span v-if="e.status === 'en_cola'" class="text-body-secondary ms-1">· en cola…</span>
+          <span v-else-if="e.status === 'procesando'" class="text-body-secondary ms-1">· creando… {{ e.progreso }}%</span>
+          <template v-else-if="e.status === 'error'">
+            <span class="text-danger ms-1">· {{ e.error }}</span>
+            <CButton color="link" size="sm" class="py-0" @click="reintentarExport(e)">Reintentar</CButton>
+          </template>
+          <span v-else class="text-body-secondary ms-1">· {{ tamano(e.size) }} · {{ venceEn(e.expiresAt) }}</span>
+          <div v-if="e.status === 'lista'" class="d-flex flex-wrap gap-1 mt-1">
+            <CButton color="secondary" variant="outline" size="sm" :disabled="viendo === e.id" @click="ver(e.id)"><CIcon icon="cil-media-play" class="me-1" />Ver</CButton>
+            <CButton color="secondary" variant="outline" size="sm" :disabled="compartiendo !== null" :title="`Compartir ${etiquetaExport(e)}`" @click="compartirE(e)">
+              <CIcon icon="cil-share-boxed" class="me-1" />{{ compartiendo === e.id && progresoExp !== null ? `${progresoExp}%` : 'Compartir' }}
             </CButton>
-            <CButton color="danger" variant="ghost" size="sm" title="Borrar la versión ligera" @click="borrarLigera">Borrar</CButton>
+            <CButton color="danger" variant="ghost" size="sm" :title="`Borrar ${etiquetaExport(e)}`" @click="borrarExport(e)"><CIcon icon="cil-trash" /></CButton>
           </div>
-        </template>
+          <CButton v-else-if="e.status === 'error'" color="danger" variant="ghost" size="sm" class="py-0" @click="borrarExport(e)">Quitar</CButton>
+        </div>
       </div>
       <div class="text-body-secondary">
         <template v-if="tipo === 'video'">{{ duracion(m.duration) }} · {{ m.width }}×{{ m.height }} · {{ m.videoCodec?.toUpperCase() }} · </template>
@@ -317,6 +342,26 @@ onBeforeUnmount(() => {
       </div>
     </CCol>
   </CRow>
+  <CModal :visible="!!exportando" alignment="center" @close="exportando = null">
+    <CModalHeader><CModalTitle>Exportar video</CModalTitle></CModalHeader>
+    <CModalBody v-if="exportando">
+      <div class="fw-semibold mb-1">Tamaño</div>
+      <div v-for="[a, txt] in [[null, 'Original (sin reducir)'], [720, '720p'], [480, '480p']]" :key="String(a)" class="form-check">
+        <input :id="`alto-${a}`" v-model="exportando.alto" class="form-check-input" type="radio" :value="a" :disabled="a !== null && !altosPosibles.includes(a)" />
+        <label class="form-check-label" :for="`alto-${a}`">{{ txt }}</label>
+      </div>
+      <div class="fw-semibold mt-3 mb-1">Filtro</div>
+      <div v-for="[k, txt] in [[null, 'Ninguno'], ...FILTROS.map(([k, n, d]) => [k, `${n}: posterizado verde/amarillo, ${d}`])]" :key="String(k)" class="form-check">
+        <input :id="`filtro-${k}`" v-model="exportando.filtro" class="form-check-input" type="radio" :value="k" />
+        <label class="form-check-label" :for="`filtro-${k}`">{{ txt }}</label>
+      </div>
+      <div class="small text-body-secondary mt-3">Lo hace la NAS (puede tardar varias veces lo que dura el video) y se borra solo a los 7 días.</div>
+    </CModalBody>
+    <CModalFooter>
+      <CButton color="secondary" variant="ghost" @click="exportando = null">Cancelar</CButton>
+      <CButton color="primary" :disabled="!exportando || (exportando.alto === null && exportando.filtro === null)" @click="pedirExport">Exportar</CButton>
+    </CModalFooter>
+  </CModal>
   <VisorCompleto v-if="visor" :ids="idsVisor" :inicial="item.id" @cerrar="cerrarVisor" />
   <UbicacionModal v-if="m && tipo !== 'archivo'" :item="item" :visible="ubicando" @close="ubicando = false" @save="guardarUbicacion" />
 </template>
