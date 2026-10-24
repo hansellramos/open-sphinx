@@ -1,19 +1,20 @@
 // Elementos (videos, fotos y archivos; la tabla se llama Video por historia): subida reanudable (tus),
 // lista, archivos cifrados y borrado. El tipo de cada uno va dentro de los metadatos cifrados.
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Server as TusServer } from '@tus/server'
-import { FileStore } from '@tus/file-store'
 import { prisma } from '../db.ts'
-import { ARCHIVO_VALIDO, borrarSubida, paths, videoDir } from '../lib/paths.ts'
-import { ALTOS, FILTROS, exportPublica } from '../lib/exportar.ts'
+import { ARCHIVO_VALIDO, borrarSubida, videoDir } from '../lib/paths.ts'
+import { ALTOS, FILTROS, exportPublica, guardarClave } from '../lib/exportar.ts'
+import { SubidasCifradas } from '../lib/temporal.ts'
 
 const MAX_BYTES = 20 * 1024 ** 3 // 20 GB
 
 const tus = new TusServer({
   path: '/api/subidas',
-  datastore: new FileStore({ directory: paths.subidas }),
+  datastore: new SubidasCifradas(), // cifradas al llegar; la llave temporal vive en RAM
   maxSize: MAX_BYTES,
   respectForwardedHeaders: true,
   relativeLocation: true, // detrás de Tailscale Serve: evita URLs http:// absolutas
@@ -21,13 +22,7 @@ const tus = new TusServer({
     // El nombre del archivo queda en texto plano solo hasta que el worker lo mete en los metadatos cifrados.
     const name = upload.metadata?.filename || 'archivo'
     // extra: etiquetas elegidas al subir, selladas por el navegador con la pública (el servidor no las lee).
-    let extra = upload.metadata?.extra || null
-    try {
-      const x = extra && JSON.parse(extra)
-      if (!x?.k?.epk || typeof x.d !== 'string' || extra.length > 8000) extra = null
-    } catch {
-      extra = null
-    }
+    const extra = selladoValido(upload.metadata?.extra)
     const video = await prisma.video.create({
       data: {
         originalName: name.slice(0, 255),
@@ -43,10 +38,32 @@ const tus = new TusServer({
   },
 })
 
+// Datos sellados por el navegador con la pública ({k: {epk…}, d}); el servidor no los puede leer.
+function selladoValido(extra?: string | null) {
+  try {
+    const x = extra && JSON.parse(extra)
+    return x?.k?.epk && typeof x.d === 'string' && extra.length <= 8000 ? extra : null
+  } catch {
+    return null
+  }
+}
+
 // Monta tus (antes de express.json) en /api/subidas.
 export const subidas = (req, res) => tus.handle(req, res)
 
 const r = Router()
+
+// Etiquetas/fecha cambiadas después de empezar a subir: se guardan selladas con el elemento (reemplazan a las de
+// la subida) y el worker las mete en los metadatos. Así no se pierden si se recarga la página. 404: la subida
+// todavía no termina (el navegador lo reintenta al terminar) o ya se procesó (el navegador lo aplica él).
+r.put('/por-subida/:uploadId/ajuste', async (req, res) => {
+  const extra = selladoValido(typeof req.body?.extra === 'string' ? req.body.extra : null)
+  if (!extra) return res.status(400).json({ error: 'Datos no válidos' })
+  const v = await prisma.video.findFirst({ where: { uploadId: req.params.uploadId } })
+  if (!v) return res.status(404).json({ error: 'No hay una subida en proceso con ese id' })
+  await prisma.video.update({ where: { id: v.id }, data: { extra } })
+  res.json({ ok: true })
+})
 
 // Solo lo cifrado + estado. Los campos "legado" (MVP sin cifrar) se mandan mientras el navegador no los migre.
 const publico = (v) => ({
@@ -109,7 +126,8 @@ r.delete('/:id', async (req, res) => {
 })
 
 // Exportar (más pequeño y/o con filtro). El navegador presta la clave del video solo para este trabajo: queda en
-// la fila mientras espera en la cola y el worker la borra al tomarla. Si ya hay una igual, se devuelve esa.
+// RAM (nunca en la base) y el worker la borra al terminar o fallar. Si ya hay una igual, se devuelve esa; si
+// esa tuvo error, se reanuda desde donde quedó.
 r.post('/:id/exportar', async (req, res) => {
   const clave = String(req.body?.clave ?? '')
   const duracion = Number(req.body?.duracion)
@@ -123,8 +141,10 @@ r.post('/:id/exportar', async (req, res) => {
   if (!v || v.status !== 'listo' || !v.segments) return res.status(404).json({ error: 'No hay un video listo con ese id' })
   const igual = await prisma.exportacion.findFirst({ where: { videoId: v.id, alto, filtro } })
   if (igual && igual.status !== 'error') return res.json(exportPublica(igual))
-  const data = { status: 'en_cola', error: null, clave, progreso: 0, duracion: Number.isFinite(duracion) && duracion > 0 ? duracion : null, createdAt: new Date() }
-  const e = igual ? await prisma.exportacion.update({ where: { id: igual.id }, data }) : await prisma.exportacion.create({ data: { ...data, videoId: v.id, alto, filtro } })
+  const data = { status: 'en_cola', error: null, clave: null, duracion: Number.isFinite(duracion) && duracion > 0 ? duracion : null, createdAt: new Date() }
+  const id = igual?.id ?? randomUUID()
+  await guardarClave(id, clave) // antes de quedar en cola, para que el worker la encuentre
+  const e = igual ? await prisma.exportacion.update({ where: { id }, data }) : await prisma.exportacion.create({ data: { ...data, id, videoId: v.id, alto, filtro } })
   res.json(exportPublica(e))
 })
 

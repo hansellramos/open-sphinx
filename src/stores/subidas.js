@@ -2,13 +2,15 @@
 // subiendo aunque navegues a otra pantalla.
 // Antes de subir cada archivo se calcula su huella (SHA-256) y se compara con las de la bóveda (que van en
 // los metadatos cifrados): si ya está, no se sube. Etiquetas y fecha (la del nombre, p. ej. de WhatsApp, o la
-// elegida) viajan selladas con la pública; si se cambian cuando ya se está subiendo, se aplican al terminar.
+// elegida) viajan selladas con la pública. Si se cambian cuando ya se está subiendo, se guardan selladas en la
+// NAS junto a la subida (no se pierden si se recarga la página) y el worker las mete en el elemento.
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import * as tus from 'tus-js-client'
 import { createSHA256 } from 'hash-wasm'
 import { useBovedaStore } from '@/stores/boveda'
 import { deLocal, fechaDelNombre } from '@/lib/formato'
+import { api } from '@/services/api'
 
 const PEDAZO = 8 * 1024 * 1024
 let seq = 0
@@ -76,8 +78,7 @@ export const useSubidasStore = defineStore('subidas', () => {
     let extra = ''
     try {
       const datos = {}
-      if (it.tags.length) datos.tags = await boveda.etiquetasPara(it.tags)
-      if (it.fecha) Object.assign(datos, { takenAt: deLocal(it.fecha), manual: it.manual })
+      Object.assign(datos, await ajustesDe(it))
       if (Object.keys(datos).length) extra = JSON.stringify(await boveda.sellar(datos))
     } catch (e) {
       it.estado = 'error'
@@ -99,6 +100,7 @@ export const useSubidasStore = defineStore('subidas', () => {
         it.progreso = 100
         it.velocidad = it.restante = null
         it.file = null
+        if (it.ajustePendiente) guardarAjuste(it) // cambió algo mientras subía: ahora ya hay elemento
         boveda.cargar(true).catch(() => {}) // aparece "En cola" y empieza el sondeo
         siguiente()
       },
@@ -132,10 +134,42 @@ export const useSubidasStore = defineStore('subidas', () => {
         it.nombre = nuevo + m[1]
       }
     }
-    if ((it.estado === 'subiendo' || it.estado === 'listo') && it.sha)
-      useBovedaStore()
-        .ajustarPorHuella(it.sha, { tags: it.tags, takenAt: deLocal(it.fecha), manual: it.manual, ...(it.titulo && { title: it.titulo }) })
-        .catch((e) => console.warn('No se pudo guardar el cambio', e))
+    if (it.estado === 'subiendo' || it.estado === 'listo') guardarAjuste(it)
+  }
+
+  // Lo que va sellado con la subida (etiquetas como ids, fecha, título si se renombró).
+  async function ajustesDe(it) {
+    const boveda = useBovedaStore()
+    const datos = {}
+    if (it.tags.length) datos.tags = await boveda.etiquetasPara(it.tags)
+    if (it.fecha) Object.assign(datos, { takenAt: deLocal(it.fecha), manual: it.manual })
+    if (it.titulo) datos.title = it.titulo
+    return datos
+  }
+
+  // Ya salió: se guarda sellado en la NAS con la subida (reemplaza lo de antes). Si la subida no ha terminado
+  // (todavía no hay elemento), se manda al terminar; si ya se procesó, lo aplica este navegador.
+  async function guardarAjuste(it) {
+    const boveda = useBovedaStore()
+    it.ajustePendiente = false
+    try {
+      const id = it.upload?.url?.split('/').pop()
+      if (id) {
+        const extra = JSON.stringify(await boveda.sellar(await ajustesDe(it)))
+        try {
+          return await api.put(`/videos/por-subida/${encodeURIComponent(id)}/ajuste`, { extra })
+        } catch (e) {
+          if (e.status !== 404) throw e
+        }
+      }
+      if (it.estado === 'subiendo') {
+        it.ajustePendiente = true
+        return
+      }
+      if (it.sha) await boveda.ajustarPorHuella(it.sha, { tags: it.tags, takenAt: deLocal(it.fecha), manual: it.manual, ...(it.titulo && { title: it.titulo }) })
+    } catch (e) {
+      console.warn('No se pudo guardar el cambio', e)
+    }
   }
 
   // Velocidad: promedio móvil de los últimos segundos (tus avisa cada pedazo enviado al socket, que puede

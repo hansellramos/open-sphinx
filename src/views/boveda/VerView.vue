@@ -344,8 +344,8 @@ onBeforeUnmount(() => {
           <span v-if="e.status === 'en_cola'" class="text-body-secondary ms-1">· en cola…</span>
           <span v-else-if="e.status === 'procesando'" class="text-body-secondary ms-1">· creando… {{ e.progreso }}%</span>
           <template v-else-if="e.status === 'error'">
-            <span class="text-danger ms-1">· {{ e.error }}</span>
-            <CButton color="link" size="sm" class="py-0" @click="reintentarExport(e)">Reintentar</CButton>
+            <span class="text-danger ms-1">· {{ e.progreso ? `quedó en ${e.progreso}% · ` : '' }}{{ e.error }}</span>
+            <CButton color="link" size="sm" class="py-0" @click="reintentarExport(e)">{{ e.progreso ? 'Reanudar' : 'Reintentar' }}</CButton>
           </template>
           <span v-else class="text-body-secondary ms-1">· {{ tamano(e.size) }} · {{ venceEn(e.expiresAt) }}</span>
           <div v-if="e.status === 'lista'" class="d-flex flex-wrap gap-1 mt-1">

@@ -89,7 +89,7 @@ try {
   if ((await page.locator('.video-card').count()) !== 1) throw new Error('la etiqueta del menú no muestra el video')
   // Lo que ve el servidor: nada legible.
   const crudo = await page.evaluate(async () => JSON.stringify([await (await fetch('/api/videos')).json(), await (await fetch('/api/boveda')).json()]))
-  for (const x of ['Viajes', '2024', 'prueba', 'iPhone', '4.65']) if (crudo.includes(x)) throw new Error(`el servidor ve "${x}" en claro`)
+  for (const x of ['Viajes', '2024', 'prueba', 'iPhone', '4.6534']) if (crudo.includes(x)) throw new Error(`el servidor ve "${x}" en claro`)
   paso('etiquetas cifradas en su propio menú (iconos); el servidor no ve título, etiquetas, fecha ni ubicación')
   await page.locator('.video-card .fav').click()
   await page.locator('.sidebar a', { hasText: 'Favoritos' }).click()

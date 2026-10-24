@@ -1,11 +1,12 @@
 // ffprobe/ffmpeg/libheif. Cortar videos en fragmentos es con -c copy (sin recodificar): casi solo disco, poca CPU.
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream } from 'node:fs'
-import { open, rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { open, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import exifr from 'exifr'
 import { TAM_PARTE, aadParte, encryptBlob, nombreParte } from '../../shared/crypto.js'
+import type { Lector } from './temporal.ts'
 
 // En la NAS: prioridad mínima de CPU y de disco para no molestar a Immich/Jellyfin.
 const tieneNice = spawnSync('nice', ['true']).status === 0
@@ -77,17 +78,16 @@ export async function probe(file: string): Promise<Probe> {
 const VIDEO_OK = ['h264', 'hevc', 'av1', 'vp9']
 const AUDIO_COPIA = ['aac', 'mp3', 'opus', 'ac3', 'eac3']
 
-// HLS con fragmentos fMP4 de ~6 s: index.m3u8 + init.mp4 + seg_00000.m4s…
+// HLS con fragmentos fMP4 de ~6 s: index.m3u8 + init.mp4 + seg_00000.m4s… La lista es tipo EVENT: ffmpeg la
+// reescribe con cada fragmento que cierra, así cifradorHLS sabe cuáles ya están completos.
+export const HLS = ['-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'event', '-hls_flags', 'temp_file', '-hls_segment_type', 'fmp4', '-hls_fmp4_init_filename', 'init.mp4']
 export async function segmentar(input: string, outDir: string, p: Probe) {
   if (!VIDEO_OK.includes(p.videoCodec)) throw new Error(`Formato de video no soportado todavía: ${p.videoCodec}`)
   const args = ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'copy']
   if (p.videoCodec === 'hevc') args.push('-tag:v', 'hvc1') // Safari/Chrome exigen hvc1 en MP4
   if (p.audioCodec && !AUDIO_COPIA.includes(p.audioCodec)) args.push('-c:a', 'aac', '-b:a', '160k')
   else args.push('-c:a', 'copy')
-  args.push(
-    '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'vod', '-hls_segment_type', 'fmp4',
-    '-hls_fmp4_init_filename', 'init.mp4', '-hls_segment_filename', `${outDir}/seg_%05d.m4s`, `${outDir}/index.m3u8`,
-  )
+  args.push(...HLS, '-hls_segment_filename', `${outDir}/seg_%05d.m4s`, `${outDir}/index.m3u8`)
   await run('ffmpeg', args)
 }
 
@@ -193,27 +193,92 @@ export async function prepararImagen(input: string, nombre: string, outDir: stri
 
 // ---------------- originales en partes ----------------
 
-// Cifra el archivo en partes (orig_00000.enc…) leyéndolo por pedazos: no lo carga entero en RAM.
-export async function cifrarEnPartes(input: string, outDir: string, key: CryptoKey, tam: number) {
-  const total = Math.max(1, Math.ceil(tam / TAM_PARTE))
-  const fh = await open(input, 'r')
-  try {
-    const buf = Buffer.alloc(Math.min(TAM_PARTE, Math.max(tam, 1)))
-    for (let i = 0; i < total; i++) {
-      const { bytesRead } = await fh.read(buf, 0, buf.length, i * TAM_PARTE)
-      const out = await open(path.join(outDir, `${nombreParte(i)}.enc`), 'w')
-      await out.writeFile(await encryptBlob(key, buf.subarray(0, bytesRead), aadParte(i, total)))
-      await out.close()
-    }
-  } finally {
-    await fh.close()
+// Cifra el original en partes (orig_00000.enc…) leyéndolo por pedazos de la subida: no lo carga entero en RAM.
+export async function cifrarEnPartes(l: Lector, outDir: string, key: CryptoKey) {
+  const total = Math.max(1, Math.ceil(l.size / TAM_PARTE))
+  for (let i = 0; i < total; i++) {
+    const plano = await l.leer(i * TAM_PARTE, TAM_PARTE)
+    await writeFile(path.join(outDir, `${nombreParte(i)}.enc`), await encryptBlob(key, plano, aadParte(i, total)))
+    plano.fill(0)
   }
   return total
 }
 
 // Huella del original (para detectar duplicados). Va dentro de los metadatos cifrados, nunca en claro.
-export async function sha256(file: string) {
+export async function sha256(l: Lector) {
   const h = createHash('sha256')
-  for await (const chunk of createReadStream(file)) h.update(chunk)
+  for await (const chunk of l.flujo()) h.update(chunk)
   return h.digest('hex')
+}
+
+// ---------------- HLS cifrado al vuelo ----------------
+
+// Fragmentos completos de una lista HLS (con su duración), en orden.
+export function entradasHLS(lista: string) {
+  const out: { nombre: string; dur: number }[] = []
+  const lineas = lista.split('\n').map((x) => x.trim())
+  for (let i = 0; i < lineas.length - 1; i++) {
+    const m = /^#EXTINF:([\d.]+),?$/.exec(lineas[i])
+    if (m && /^seg_\d{5}\.m4s$/.test(lineas[i + 1])) out.push({ nombre: lineas[i + 1], dur: Number(m[1]) })
+  }
+  return out
+}
+
+export function listaVOD(segs: { nombre: string; dur: number }[]) {
+  const max = Math.max(1, ...segs.map((x) => Math.ceil(x.dur)))
+  return [
+    '#EXTM3U', '#EXT-X-VERSION:7', `#EXT-X-TARGETDURATION:${max}`, '#EXT-X-MEDIA-SEQUENCE:0', '#EXT-X-PLAYLIST-TYPE:VOD',
+    '#EXT-X-INDEPENDENT-SEGMENTS', '#EXT-X-MAP:URI="init.mp4"', ...segs.flatMap((x) => [`#EXTINF:${x.dur.toFixed(6)},`, x.nombre]), '#EXT-X-ENDLIST', '',
+  ].join('\n')
+}
+
+// Mientras ffmpeg escribe HLS en `dir` (en RAM), cifra cada fragmento apenas aparece en la lista (ya está
+// completo) y borra el que quedó en claro; así en RAM hay uno o dos a la vez. init.mp4 se cifra con el primero
+// (si `conInit`). `alCifrar` se llama por cada uno, en orden. `terminar()` hace la última pasada (al salir ffmpeg).
+export function cifradorHLS(dir: string, destino: string, key: CryptoKey, { conInit = true, alCifrar }: { conInit?: boolean; alCifrar?: (s: { nombre: string; dur: number; size: number }) => Promise<void> | void } = {}) {
+  const hechos = new Set<string>()
+  let initHecho = !conInit
+  let cola = Promise.resolve()
+  let error: Error | null = null
+  const pasada = () =>
+    (cola = cola.then(async () => {
+      if (error) return
+      try {
+        const entradas = entradasHLS(await readFile(path.join(dir, 'index.m3u8'), 'utf8').catch(() => ''))
+        if (!entradas.length) return
+        const init = path.join(dir, 'init.mp4')
+        if (!initHecho && existsSync(init)) {
+          const plano = await readFile(init)
+          await writeFile(path.join(destino, 'init.mp4.enc'), await encryptBlob(key, plano))
+          initHecho = true
+        }
+        if (existsSync(init) && initHecho) await rm(init, { force: true })
+        for (const e of entradas) {
+          if (hechos.has(e.nombre)) continue
+          const f = path.join(dir, e.nombre)
+          const plano = await readFile(f)
+          const cifrado = await encryptBlob(key, plano)
+          await writeFile(path.join(destino, `${e.nombre}.enc`), cifrado)
+          await rm(f, { force: true })
+          plano.fill(0)
+          hechos.add(e.nombre)
+          await alCifrar?.({ ...e, size: cifrado.length })
+        }
+      } catch (e) {
+        error = e
+      }
+    }))
+  const timer = setInterval(pasada, 500)
+  return {
+    async terminar() {
+      clearInterval(timer)
+      await pasada()
+      if (error) throw error
+      if (!initHecho) throw new Error('ffmpeg no produjo init.mp4')
+    },
+    parar() {
+      clearInterval(timer)
+      return cola
+    },
+  }
 }

@@ -9,3 +9,5 @@ mkdirSync(paths.db, { recursive: true })
 const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? `file:${paths.db}/boveda.db`, timeout: 10_000 })
 export const prisma = new PrismaClient({ adapter })
 await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL')
+// Lo borrado se sobrescribe con ceros (no queda en páginas libres del archivo).
+await prisma.$queryRawUnsafe('PRAGMA secure_delete=ON')

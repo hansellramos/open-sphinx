@@ -11,14 +11,26 @@ const dir = mkdtempSync(path.join(tmpdir(), 'boveda-test-'))
 process.env.DATA_DIR = dir
 process.env.DATABASE_URL = `file:${dir}/db/boveda.db`
 
-let prisma, procesar, c, paths
+let prisma, procesar, c, paths, temporal
 before(async () => {
   execFileSync('npx', ['prisma', 'migrate', 'deploy'], { env: process.env, stdio: 'ignore' })
   ;({ prisma } = await import('../db.ts'))
   ;({ procesar } = await import('../worker.ts'))
   ;({ paths } = await import('../lib/paths.ts'))
+  temporal = await import('../lib/temporal.ts')
   c = await import('../../shared/crypto.js')
 })
+// Deja la subida como la deja tus: cifrada en disco con una llave temporal en RAM.
+async function cifrarSubida(uploadId) {
+  const input = path.join(paths.subidas, uploadId)
+  const plano = readFileSync(input)
+  await temporal.crearLlave(uploadId)
+  const ll = await temporal.leerLlave(uploadId)
+  writeFileSync(input, temporal.cifrarBloque(ll, 0, plano))
+  writeFileSync(path.join(paths.llavesSubida, `${uploadId}.json`), JSON.stringify({ id: uploadId, size: plano.length }))
+  if (plano.length > 64) assert.ok(!readFileSync(input).subarray(0, 64).equals(plano.subarray(0, 64)), 'en disco va cifrada')
+}
+
 after(async () => {
   await prisma?.$disconnect()
   rmSync(dir, { recursive: true, force: true })
@@ -37,7 +49,7 @@ for (const codec of ['libx264', 'libx265']) {
       '-metadata', 'com.apple.quicktime.creationdate=2021-12-24T19:03:12-0500',
       '-metadata', 'com.apple.quicktime.make=Apple', '-metadata', 'com.apple.quicktime.model=iPhone 12',
       '-movflags', 'use_metadata_tags', '-f', 'mov', input])
-    writeFileSync(`${input}.json`, '{}')
+    await cifrarSubida(uploadId)
     const v = await prisma.video.create({ data: { originalName: 'IMG_0001.MOV', uploadId } })
 
     await procesar(v.id)
@@ -47,7 +59,7 @@ for (const codec of ['libx264', 'libx265']) {
     assert.equal(listo.originalName, null, 'el nombre en claro se borra')
     assert.ok(listo.segments >= 3)
     assert.ok(!existsSync(input) && !existsSync(`${input}.json`), 'borra la subida sin cifrar')
-    assert.deepEqual(readdirSync(paths.tmp), [], 'no deja temporales')
+    assert.deepEqual(readdirSync(paths.tmp), [], 'no deja temporales en RAM')
     const vdir = path.join(paths.videos, v.id)
     const files = readdirSync(vdir)
     assert.ok(files.every((f) => f === 'index.m3u8' || f === 'key.json' || f.endsWith('.enc')))
@@ -75,6 +87,14 @@ for (const codec of ['libx264', 'libx265']) {
     assert.equal(thumb.subarray(0, 2).toString('hex'), 'ffd8', 'miniatura JPEG')
     if (codec === 'libx265') assert.equal(meta.videoCodec, 'hevc')
   })
+}
+
+// Como POST /videos/:id/exportar: la clave prestada va a la RAM, no a la base.
+async function crearExp(clave, data) {
+  const { guardarClave } = await import('../lib/exportar.ts')
+  const e = await prisma.exportacion.create({ data })
+  await guardarClave(e.id, clave)
+  return e
 }
 
 async function nuevaBoveda() {
@@ -105,7 +125,7 @@ test('procesa una foto con EXIF de celular (fecha, GPS, equipo, girada) y guarda
   execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=800x400', '-frames:v', '1', base])
   const foto = conExif(readFileSync(base), { fecha: '2023:07:14 16:20:05', zona: '-05:00', lat: 6.2442, lon: -75.5812, alt: 1495, make: 'Apple', model: 'iPhone 15 Pro', orientacion: 6 })
   writeFileSync(input, foto)
-  writeFileSync(`${input}.json`, '{}')
+  await cifrarSubida(uploadId)
   const v = await prisma.video.create({ data: { originalName: 'IMG_2000.JPG', mime: 'image/jpeg', uploadId } })
 
   await procesar(v.id)
@@ -137,7 +157,7 @@ test('procesa un archivo cualquiera en partes, sin poder reordenarlas', async ()
   const datos = Buffer.alloc(c.TAM_PARTE * 2 + 12345)
   for (let i = 0; i < datos.length; i += 4096) datos.writeUInt32BE(i, i)
   writeFileSync(input, datos)
-  writeFileSync(`${input}.json`, '{}')
+  await cifrarSubida(uploadId)
   const sellado = { k: { epk: 'x', iv: 'y', ct: 'z' }, d: 'cifrado-por-el-navegador' }
   const v = await prisma.video.create({ data: { originalName: 'contrato.pdf', mime: 'application/pdf', uploadId, extra: JSON.stringify(sellado) } })
 
@@ -160,7 +180,7 @@ test('un video que no se puede reproducir se guarda como archivo', async () => {
   const uploadId = 'up-roto'
   const input = path.join(paths.subidas, uploadId)
   writeFileSync(input, Buffer.from('no es un video de verdad'))
-  writeFileSync(`${input}.json`, '{}')
+  await cifrarSubida(uploadId)
   const v = await prisma.video.create({ data: { originalName: 'roto.mp4', mime: 'video/mp4', uploadId } })
   await procesar(v.id)
   const { key, meta, vdir } = await abrir(priv, v.id)
@@ -189,31 +209,32 @@ const dimensiones = (f) => execFileSync('ffprobe', ['-v', 'error', '-select_stre
 
 test('exportar: 720p y 480p con filtro, cifrado con la clave prestada, sin dejar la clave, y vence', async () => {
   const priv = await nuevaBoveda()
-  const { cicloExportacion, vencerExportaciones, recuperarExportaciones, exportDir } = await import('../lib/exportar.ts')
+  const { cicloExportacion, vencerExportaciones, recuperarExportaciones, exportDir, guardarClave } = await import('../lib/exportar.ts')
   const uploadId = 'up-exportar'
   const input = path.join(paths.subidas, uploadId)
   execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440',
     '-t', '14', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac', '-f', 'mov', input])
-  writeFileSync(`${input}.json`, '{}')
+  await cifrarSubida(uploadId)
   const v = await prisma.video.create({ data: { originalName: 'GRANDE.MOV', uploadId } })
   await procesar(v.id)
   const { listo, key, vdir } = await abrir(priv, v.id)
 
   // El navegador presta los bytes de la clave del video.
   const clave = c.b64u(await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse(listo.keyWrap)))
-  const e720 = await prisma.exportacion.create({ data: { videoId: v.id, clave, duracion: 14, alto: 720 } })
-  const eFiltro = await prisma.exportacion.create({ data: { videoId: v.id, clave, duracion: 14, alto: 480, filtro: 'a' } })
+  const e720 = await crearExp(clave, { videoId: v.id, duracion: 14, alto: 720 })
+  const eFiltro = await crearExp(clave, { videoId: v.id, duracion: 14, alto: 480, filtro: 'a' })
   assert.equal(await cicloExportacion(), true)
   assert.equal((await prisma.exportacion.findUniqueOrThrow({ where: { id: eFiltro.id } })).status, 'en_cola', 'de a una')
   assert.equal(await cicloExportacion(), true)
   for (const e of [e720, eFiltro]) {
     const hecha = await prisma.exportacion.findUniqueOrThrow({ where: { id: e.id } })
     assert.equal(hecha.status, 'lista', hecha.error ?? '')
-    assert.equal(hecha.clave, null, 'no queda la clave')
+    assert.equal(hecha.clave, null, 'nunca en la base')
+    assert.ok(!existsSync(path.join(paths.claves, e.id)), 'la clave prestada se borra de la RAM')
     assert.ok(hecha.size > 0 && hecha.expiresAt.getTime() - Date.now() > 6.9 * 24 * 3600e3)
     assert.ok(readdirSync(exportDir(v.id, e.id)).every((f) => f === 'index.m3u8' || f.endsWith('.enc')), 'solo cifrado')
   }
-  assert.deepEqual(readdirSync(paths.tmp), [], 'no deja temporales')
+  assert.deepEqual(readdirSync(paths.tmp), [], 'no deja temporales en RAM')
 
   const mp4 = await rearmar(key, exportDir(v.id, e720.id), 'exp-720.mp4')
   assert.equal(dimensiones(mp4), 'h264,1280,720')
@@ -232,17 +253,25 @@ test('exportar: 720p y 480p con filtro, cifrado con la clave prestada, sin dejar
   assert.ok(fuera / (crudo.length / 3) < 0.03, `píxeles fuera de la paleta: ${fuera}`)
 
   // Clave equivocada → error y sin clave guardada.
-  await prisma.exportacion.update({ where: { id: e720.id }, data: { status: 'en_cola', clave: c.b64u(new Uint8Array(32)) } })
+  await guardarClave(e720.id, c.b64u(new Uint8Array(32)))
+  await prisma.exportacion.update({ where: { id: e720.id }, data: { status: 'en_cola' } })
   await cicloExportacion()
   const mala = await prisma.exportacion.findUniqueOrThrow({ where: { id: e720.id } })
   assert.equal(mala.status, 'error')
   assert.match(mala.error, /clave no corresponde/)
-  assert.equal(mala.clave, null)
+  assert.ok(!existsSync(path.join(paths.claves, e720.id)))
 
-  // Interrumpida: al arrancar queda en error.
-  await prisma.exportacion.update({ where: { id: e720.id }, data: { status: 'procesando' } })
+  // Sin clave (se reinició la NAS): error que pide reanudarla.
+  await prisma.exportacion.update({ where: { id: e720.id }, data: { status: 'en_cola' } })
+  await cicloExportacion()
+  assert.match((await prisma.exportacion.findUniqueOrThrow({ where: { id: e720.id } })).error, /reanúdala/)
+
+  // Interrumpida (se reinició el worker): al arrancar vuelve a la cola, y ninguna clave queda en la base.
+  await prisma.exportacion.update({ where: { id: e720.id }, data: { status: 'procesando', clave: 'vieja' } })
   await recuperarExportaciones()
-  assert.equal((await prisma.exportacion.findUniqueOrThrow({ where: { id: e720.id } })).status, 'error')
+  const rec = await prisma.exportacion.findUniqueOrThrow({ where: { id: e720.id } })
+  assert.equal(rec.status, 'en_cola')
+  assert.equal(rec.clave, null)
 
   // Vencen: se borran las carpetas y las filas; el video completo sigue.
   await prisma.exportacion.updateMany({ data: { status: 'lista', expiresAt: new Date(Date.now() - 1000) } })
@@ -259,14 +288,14 @@ test('usar una exportación como original: reemplaza los fragmentos, conserva la
   const input = path.join(paths.subidas, uploadId)
   execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440',
     '-t', '8', '-c:v', 'libx264', '-crf', '15', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac', '-f', 'mov', input])
-  writeFileSync(`${input}.json`, '{}')
+  await cifrarSubida(uploadId)
   const v = await prisma.video.create({ data: { originalName: 'REEMPLAZO.MOV', uploadId } })
   await procesar(v.id)
   const { listo, key, vdir } = await abrir(priv, v.id)
   const thumbAntes = readFileSync(path.join(vdir, 'thumb.jpg.enc'))
   const pesoAntes = readdirSync(vdir).filter((f) => f.startsWith('seg_') || f === 'init.mp4.enc').reduce((s, f) => s + readFileSync(path.join(vdir, f)).length, 0)
   const clave = c.b64u(await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse(listo.keyWrap)))
-  const e = await prisma.exportacion.create({ data: { videoId: v.id, clave, duracion: 8, alto: 480 } })
+  const e = await crearExp(clave, { videoId: v.id, duracion: 8, alto: 480 })
   await cicloExportacion()
   assert.equal((await prisma.exportacion.findUniqueOrThrow({ where: { id: e.id } })).status, 'lista')
 
@@ -290,7 +319,7 @@ test('captura PNG grande (sin EXIF): se procesa; si el worker se cayó justo des
   const uploadId = 'up-captura'
   const input = path.join(paths.subidas, uploadId)
   execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'cellauto=s=1170x2532:rule=110,format=rgb24,noise=alls=60:allf=t', '-frames:v', '1', '-f', 'image2', '-c:v', 'png', input])
-  writeFileSync(`${input}.json`, '{}')
+  await cifrarSubida(uploadId)
   const v = await prisma.video.create({ data: { originalName: 'pegado-2026-10-23_23-20-00.png', mime: 'image/png', uploadId } })
   await procesar(v.id)
   const { listo, meta } = await abrir(priv, v.id)
@@ -319,21 +348,99 @@ test('un trabajo que tumbó el worker varias veces se marca con error y la cola 
   assert.equal((await prisma.video.findUniqueOrThrow({ where: { id: v.id } })).status, 'error')
 })
 
-test('borra subidas huérfanas sin cifrar: completas a los 10 min, incompletas a los 7 días', async () => {
+test('borra subidas huérfanas: completas a los 10 min, incompletas a los 7 días, sin llave (reinicio) de una', async () => {
   const { limpiarSubidas } = await import('../worker.ts')
-  const escribir = (id, bytes, declarado) => {
+  const escribir = async (id, bytes, declarado, llave = true) => {
     writeFileSync(path.join(paths.subidas, id), Buffer.alloc(bytes))
-    writeFileSync(path.join(paths.subidas, `${id}.json`), JSON.stringify({ id, size: declarado }))
+    writeFileSync(path.join(paths.llavesSubida, `${id}.json`), JSON.stringify({ id, size: declarado }))
+    if (llave) await temporal.crearLlave(id)
   }
-  escribir('huerfana-completa', 100, 100)
-  escribir('a-medias', 50, 100)
-  escribir('en-uso', 100, 100)
+  await escribir('huerfana-completa', 100, 100)
+  await escribir('a-medias', 50, 100)
+  await escribir('en-uso', 100, 100)
+  await escribir('sin-llave', 50, 100, false)
   await prisma.video.create({ data: { originalName: 'en-uso.png', uploadId: 'en-uso' } })
   const existe = (id) => existsSync(path.join(paths.subidas, id))
-  assert.equal(await limpiarSubidas(Date.now()), 0, 'recién subidas: no se tocan')
+  assert.equal(await limpiarSubidas(Date.now()), 1, 'recién subidas: solo la que perdió la llave')
+  assert.ok(!existe('sin-llave') && !existsSync(path.join(paths.llavesSubida, 'sin-llave.json')))
   assert.equal(await limpiarSubidas(Date.now() + 11 * 60_000), 1)
-  assert.ok(!existe('huerfana-completa') && !existe('huerfana-completa.json'))
+  assert.ok(!existe('huerfana-completa') && !existsSync(path.join(paths.llavesSubida, 'huerfana-completa.key')))
   assert.ok(existe('a-medias') && existe('en-uso'), 'la incompleta se puede reanudar; la que está en cola no se toca')
   assert.equal(await limpiarSubidas(Date.now() + 8 * 24 * 3600_000), 1)
   assert.ok(!existe('a-medias') && existe('en-uso'))
+})
+
+test('subida cifrada: tus escribe por pedazos en cualquier posición y el worker la lee igual (también con saltos)', async () => {
+  const { Readable } = await import('node:stream')
+  const store = new temporal.SubidasCifradas()
+  const datos = Buffer.alloc(100_003)
+  for (let i = 0; i < datos.length; i++) datos[i] = (i * 7 + (i >> 8)) & 255
+  await store.create({ id: 'por-pedazos', size: datos.length, metadata: { filename: 'x.bin' }, creation_date: new Date().toISOString() })
+  let off = 0
+  for (const corte of [5, 17, 40_000, 100_003]) {
+    off = await store.write(Readable.from([datos.subarray(off, corte)]), 'por-pedazos', off)
+    assert.equal(off, corte)
+  }
+  assert.equal((await store.getUpload('por-pedazos')).offset, datos.length)
+  assert.ok(!readFileSync(path.join(paths.subidas, 'por-pedazos')).equals(datos), 'en disco no queda en claro')
+  assert.ok(!existsSync(path.join(paths.subidas, 'por-pedazos.json')), 'ni el nombre del archivo en disco')
+  const l = await temporal.abrirSubida('por-pedazos')
+  assert.ok((await l.leer(12_345, 999)).equals(datos.subarray(12_345, 13_344)))
+  const partes = []
+  for await (const b of l.flujo(33, 70_000)) partes.push(b)
+  assert.ok(Buffer.concat(partes).equals(datos.subarray(33, 70_001)))
+  // Por HTTP con Range (así lo lee ffmpeg).
+  const srv = await temporal.servir(l)
+  const r = await fetch(srv.url, { headers: { range: 'bytes=99000-' } })
+  assert.equal(r.status, 206)
+  assert.ok(Buffer.from(await r.arrayBuffer()).equals(datos.subarray(99_000)))
+  srv.cerrar()
+  assert.equal((await fetch(srv.url)).status, 404)
+
+  // Se reinició la NAS (se perdió la llave): la subida ya no sirve y tus responde que no existe.
+  rmSync(path.join(paths.llavesSubida, 'por-pedazos.key'))
+  await assert.rejects(store.getUpload('por-pedazos'))
+  assert.ok(!existsSync(path.join(paths.subidas, 'por-pedazos')))
+  await assert.rejects(temporal.abrirSubida('por-pedazos'), /se perdió/)
+})
+
+test('exportar se reanuda desde el último fragmento cifrado', async () => {
+  const priv = await nuevaBoveda()
+  const { cicloExportacion, exportDir } = await import('../lib/exportar.ts')
+  const { entradasHLS } = await import('../lib/media.ts')
+  const uploadId = 'up-reanudar'
+  const input = path.join(paths.subidas, uploadId)
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440',
+    '-t', '20', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac', '-f', 'mov', input])
+  await cifrarSubida(uploadId)
+  const v = await prisma.video.create({ data: { originalName: 'LARGO.MOV', uploadId } })
+  await procesar(v.id)
+  const { listo, key } = await abrir(priv, v.id)
+  const clave = c.b64u(await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse(listo.keyWrap)))
+  const e = await crearExp(clave, { videoId: v.id, duracion: 20, alto: 480 })
+  await cicloExportacion()
+  const dirE = exportDir(v.id, e.id)
+  const completa = entradasHLS(readFileSync(path.join(dirE, 'index.m3u8'), 'utf8'))
+  assert.ok(completa.length >= 3)
+
+  // Simula que se cortó tras el primer fragmento: queda .parcial con init, el primero y su estado.
+  const parcial = `${dirE}.parcial`
+  execFileSync('mv', [dirE, parcial])
+  for (const f of readdirSync(parcial)) if (f === 'index.m3u8' || (f.startsWith('seg_') && f !== 'seg_00000.m4s.enc')) rmSync(path.join(parcial, f))
+  const primero = readFileSync(path.join(parcial, 'seg_00000.m4s.enc'))
+  writeFileSync(path.join(parcial, 'estado.json'), JSON.stringify({ segs: [{ ...completa[0], size: primero.length }] }))
+  await prisma.exportacion.update({ where: { id: e.id }, data: { status: 'en_cola' } })
+  const { guardarClave } = await import('../lib/exportar.ts')
+  await guardarClave(e.id, clave)
+  await cicloExportacion()
+
+  const hecha = await prisma.exportacion.findUniqueOrThrow({ where: { id: e.id } })
+  assert.equal(hecha.status, 'lista', hecha.error ?? '')
+  assert.deepEqual(readFileSync(path.join(dirE, 'seg_00000.m4s.enc')), primero, 'lo ya hecho no se rehace')
+  assert.ok(!existsSync(parcial) && !existsSync(path.join(dirE, 'estado.json')))
+  const mp4 = await rearmar(key, dirE, 'reanudada.mp4')
+  const d = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).toString())
+  assert.ok(Math.abs(d - 20) < 0.6, `duración ${d}`)
+  // Se decodifica entera sin errores (los tiempos siguen donde iban).
+  execFileSync('ffmpeg', ['-v', 'error', '-xerror', '-i', mp4, '-f', 'null', '-'])
 })
