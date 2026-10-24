@@ -18,6 +18,8 @@ const boveda = useBovedaStore()
 const input = ref(null)
 const encima = ref(false)
 const nota = ref(null) // { nombre, texto } cuando lo pegado es solo texto
+const editandoEtq = ref(new Set()) // ids de la lista con el editor de etiquetas abierto
+const alternarEtq = (it) => (editandoEtq.value.has(it.id) ? editandoEtq.value.delete(it.id) : editandoEtq.value.add(it.id))
 
 const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'application/pdf': 'pdf' }
 const marca = () => new Date().toLocaleString('sv').replace(' ', '_').replace(/:/g, '-')
@@ -139,8 +141,20 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
           <span v-else>{{ it.igual?.title }} (en esta misma subida)</span>
         </template>
         <template v-else>{{ { revisando: `Revisando si ya está… ${it.progreso}%`, subiendo: `${it.progreso}%`, listo: 'Subido · en cola para cifrar', error: it.error }[it.estado] ?? 'Esperando' }}</template>
-        <CBadge v-for="t in it.tags" :key="t" color="secondary" class="fw-normal ms-1">{{ t }}</CBadge>
       </div>
+      <!-- Fecha y etiquetas de este archivo: se pueden cambiar sin esperar a que termine -->
+      <div v-if="it.estado !== 'duplicado'" class="d-flex flex-wrap align-items-center gap-2 mt-2 small">
+        <CIcon icon="cil-calendar" class="text-body-secondary" />
+        <input type="datetime-local" class="form-control form-control-sm subir-fecha" :value="it.fecha ?? ''" aria-label="Fecha" @change="subidas.cambiar(it, { fecha: $event.target.value })" />
+        <span v-if="it.fecha && !it.manual" class="text-body-secondary">del nombre</span>
+        <span v-else-if="!it.fecha" class="text-body-secondary">la de la foto, o la de hoy</span>
+        <button type="button" class="btn btn-link btn-sm p-0 ms-sm-auto d-inline-flex align-items-center gap-1 text-decoration-none" title="Etiquetas de este archivo" @click="alternarEtq(it)">
+          <CIcon icon="cil-tags" />
+          <template v-if="!it.tags.length">Etiquetas</template>
+          <CBadge v-for="t in it.tags" :key="t" color="secondary" class="fw-normal">{{ t }}</CBadge>
+        </button>
+      </div>
+      <EtiquetasEditor v-if="editandoEtq.has(it.id)" class="mt-2" :model-value="it.tags" :sugerencias="boveda.etiquetas" @update:model-value="(t) => subidas.cambiar(it, { tags: t })" />
     </CCardBody>
   </CCard>
 </template>

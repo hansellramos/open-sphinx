@@ -9,7 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
 import { decryptBlob } from '@shared/crypto.js'
-import { duracion, extension, fechaHora, iconoArchivo, tamano, vistaPrevia } from '@/lib/formato'
+import { aLocal, deLocal, duracion, extension, fechaCorta, fechaHora, iconoArchivo, tamano, vistaPrevia } from '@/lib/formato'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
 import VisorCompleto from '@/components/elementos/VisorCompleto.vue'
@@ -27,6 +27,8 @@ const error = ref('')
 const editando = ref(false)
 const titulo = ref('')
 const ubicando = ref(false)
+const cambiandoFecha = ref(false)
+const nuevaFecha = ref('')
 const urlPrevia = ref(null) // blob URL de la foto o del archivo
 const texto = ref(null)
 const cargando = ref(false)
@@ -102,6 +104,21 @@ const accion = (fn) => async (...a) => {
     toast.error(e)
   }
 }
+function cambiarFecha() {
+  nuevaFecha.value = aLocal(boveda.fechaDe(item.value))
+  cambiandoFecha.value = true
+}
+const guardarFecha = accion(async () => {
+  if (!nuevaFecha.value) return
+  await boveda.guardarMeta(item.value, { takenAt: deLocal(nuevaFecha.value) })
+  cambiandoFecha.value = false
+  toast.ok('Fecha guardada')
+})
+function renombrar() {
+  titulo.value = m.value.title
+  editando.value = true
+  window.scrollTo({ top: 0 })
+}
 const guardarTitulo = accion(async () => {
   await boveda.renombrar(item.value, titulo.value)
   editando.value = false
@@ -174,7 +191,8 @@ onBeforeUnmount(() => {
         <CButton type="submit" color="primary">Guardar</CButton>
         <CButton color="secondary" variant="ghost" @click="editando = false">Cancelar</CButton>
       </form>
-      <h1 v-else class="page-title text-truncate h4 mb-0" role="button" title="Renombrar" @click="titulo = m.title; editando = true">{{ m.title }}</h1>
+      <h1 v-else-if="tipo === 'archivo'" class="page-title text-truncate h4 mb-0" role="button" title="Renombrar" @click="renombrar">{{ m.title }}</h1>
+      <h1 v-else class="page-title text-truncate h5 mb-0">{{ fechaCorta(boveda.fechaDe(item)) }}</h1>
       <template v-if="!editando">
         <CButton v-if="tipo !== 'video'" color="secondary" variant="ghost" class="ms-auto" :disabled="progreso !== null" title="Descargar el original" @click="descargar">
           <CIcon icon="cil-cloud-download" size="lg" /><span v-if="progreso !== null" class="ms-1 small">{{ progreso }}%</span>
@@ -224,12 +242,25 @@ onBeforeUnmount(() => {
       <EtiquetasEditor :model-value="boveda.nombresDe(item)" :sugerencias="boveda.etiquetas" @update:model-value="guardarEtiquetas" />
     </CCol>
     <CCol md="5" class="small">
-      <div class="mb-1"><CIcon icon="cil-calendar" class="me-2 text-body-secondary" />{{ m.takenAt ? `${etiquetaFecha} el ${fechaHora(m.takenAt)}` : `Subido el ${fechaHora(item.createdAt)}` }}</div>
+      <form v-if="cambiandoFecha" class="mb-1 d-flex align-items-center gap-2" @submit.prevent="guardarFecha">
+        <CIcon icon="cil-calendar" class="text-body-secondary flex-shrink-0" />
+        <input v-model="nuevaFecha" type="datetime-local" class="form-control form-control-sm subir-fecha" aria-label="Fecha" required />
+        <CButton type="submit" color="primary" size="sm">Guardar</CButton>
+        <CButton color="secondary" variant="ghost" size="sm" @click="cambiandoFecha = false">Cancelar</CButton>
+      </form>
+      <div v-else class="mb-1">
+        <CIcon icon="cil-calendar" class="me-2 text-body-secondary" />{{ m.takenAt ? `${etiquetaFecha} el ${fechaHora(m.takenAt)}` : `Subido el ${fechaHora(item.createdAt)}` }}
+        <CButton color="link" size="sm" class="py-0" title="Cambiar la fecha" aria-label="Cambiar la fecha" @click="cambiarFecha">Cambiar</CButton>
+      </div>
       <div v-if="tipo !== 'archivo'" class="mb-1">
         <CIcon icon="cil-location-pin" class="me-2 text-body-secondary" />
         <RouterLink v-if="m.location" :to="`/mapa?v=${item.id}`">{{ m.location.lat.toFixed(5) }}, {{ m.location.lon.toFixed(5) }} · ver en el mapa</RouterLink>
         <span v-else class="text-body-secondary">Sin ubicación</span>
         <CButton color="link" size="sm" class="py-0" @click="ubicando = true">{{ m.location ? 'Cambiar' : 'Agregar' }}</CButton>
+      </div>
+      <div v-if="tipo !== 'archivo'" class="mb-1 d-flex align-items-center min-w-0">
+        <CIcon icon="cil-description" class="me-2 text-body-secondary flex-shrink-0" /><span class="text-truncate">{{ m.title }}</span>
+        <CButton color="link" size="sm" class="py-0" @click="renombrar">Renombrar</CButton>
       </div>
       <div v-if="m.device" class="mb-1"><CIcon icon="cil-devices" class="me-2 text-body-secondary" />{{ m.device }}</div>
       <div class="text-body-secondary">

@@ -1,6 +1,7 @@
 <script setup>
 // Galería (fotos y videos), archivos, favoritos o una etiqueta. Filtros por texto, fecha, ubicación y zona
-// del mapa; todo se hace aquí sobre los metadatos ya descifrados. Los archivos se ven en lista.
+// del mapa; todo se hace aquí sobre los metadatos ya descifrados. Fotos y videos en miniaturas (cuadritos por día,
+// para el celular) o en tarjetas por mes; se muestran por fecha y el nombre queda en los detalles. Los archivos, en lista.
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBovedaStore } from '@/stores/boveda'
@@ -9,7 +10,7 @@ import { api } from '@/services/api'
 import PageHeader from '@/components/common/PageHeader.vue'
 import Miniatura from '@/components/elementos/Miniatura.vue'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
-import { ESTADOS, fecha, iconoArchivo, mesAnio, tamano } from '@/lib/formato'
+import { ESTADOS, dia, fecha, fechaCorta, iconoArchivo, mesAnio, tamano } from '@/lib/formato'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,6 +26,20 @@ const clase = ref('todo') // en la galería: todo | imagen | video
 const editar = ref(null)
 const etiquetar = ref(null) // { v, nombres }
 const borrar = ref(null)
+const CLAVE_VISTA = 'boveda-galeria-vista'
+const leerVista = () => {
+  try {
+    return localStorage.getItem(CLAVE_VISTA) === 'tarjetas' ? 'tarjetas' : 'miniaturas'
+  } catch {
+    return 'miniaturas'
+  }
+}
+const vista = ref(leerVista()) // miniaturas | tarjetas
+watch(vista, (x) => {
+  try {
+    localStorage.setItem(CLAVE_VISTA, x)
+  } catch {}
+})
 
 const modo = computed(() => route.name) // Galeria | Archivos | Favoritos | Etiqueta
 const enLista = computed(() => modo.value === 'Archivos')
@@ -74,7 +89,8 @@ function abrir(v) {
 const grupos = computed(() => {
   const out = []
   for (const v of filtrados.value) {
-    const k = mesAnio(orden.value.startsWith('subido') ? v.createdAt : boveda.fechaDe(v))
+    const f = orden.value.startsWith('subido') ? v.createdAt : boveda.fechaDe(v)
+    const k = !enLista.value && vista.value === 'miniaturas' ? dia(f) : mesAnio(f)
     if (out.at(-1)?.k !== k) out.push({ k, items: [] })
     out.at(-1).items.push(v)
   }
@@ -147,11 +163,17 @@ watch(() => route.fullPath, () => (q.value = ''))
     </CCardBody>
   </CCard>
 
-  <CNav v-if="modo === 'Galeria'" variant="pills" class="mb-3 gap-1">
-    <CNavItem v-for="[k, txt] in [['todo', 'Todo'], ['imagen', 'Fotos'], ['video', 'Videos']]" :key="k">
-      <CNavLink as="button" :active="clase === k" @click="clase = k">{{ txt }}</CNavLink>
-    </CNavItem>
-  </CNav>
+  <div v-if="!enLista" class="d-flex align-items-center gap-2 mb-3">
+    <CNav v-if="modo === 'Galeria'" variant="pills" class="gap-1">
+      <CNavItem v-for="[k, txt] in [['todo', 'Todo'], ['imagen', 'Fotos'], ['video', 'Videos']]" :key="k">
+        <CNavLink as="button" :active="clase === k" @click="clase = k">{{ txt }}</CNavLink>
+      </CNavItem>
+    </CNav>
+    <CButtonGroup size="sm" class="ms-auto" role="group" aria-label="Vista">
+      <CButton color="secondary" :variant="vista === 'miniaturas' ? undefined : 'outline'" title="Miniaturas" @click="vista = 'miniaturas'"><CIcon icon="cil-grid" /></CButton>
+      <CButton color="secondary" :variant="vista === 'tarjetas' ? undefined : 'outline'" title="Tarjetas" @click="vista = 'tarjetas'"><CIcon icon="cil-list" /></CButton>
+    </CButtonGroup>
+  </div>
 
   <!-- Subidas en proceso o con error (aún sin metadatos ni tipo) -->
   <div v-if="conPendientes && boveda.pendientes.length" class="video-grid mb-3">
@@ -207,6 +229,18 @@ watch(() => route.fullPath, () => (q.value = ''))
       </CListGroup>
     </template>
   </template>
+  <template v-else-if="vista === 'miniaturas'">
+    <template v-for="g in grupos" :key="g.k">
+      <div class="grupo-dia">{{ g.k }}</div>
+      <div class="mini-grid">
+        <button v-for="v in g.items" :key="v.id" type="button" class="mini" :title="fechaCorta(boveda.fechaDe(v))" @click="abrir(v)">
+          <Miniatura :item="v">
+            <CIcon v-if="v.m.favorite" icon="cil-star" size="sm" class="mini-fav" />
+          </Miniatura>
+        </button>
+      </div>
+    </template>
+  </template>
   <template v-for="g in grupos" v-else :key="g.k">
     <div class="grupo-mes">{{ g.k }}</div>
     <div class="video-grid">
@@ -218,7 +252,7 @@ watch(() => route.fullPath, () => (q.value = ''))
         </Miniatura>
         <CCardBody class="p-2 px-3">
           <div class="d-flex align-items-start gap-2">
-            <div class="flex-grow-1 text-truncate fw-semibold" :title="v.m.title">{{ v.m.title }}</div>
+            <div class="flex-grow-1 text-truncate fw-semibold">{{ fechaCorta(boveda.fechaDe(v)) }}</div>
             <CDropdown placement="bottom-end" @click.stop>
               <CDropdownToggle color="link" size="sm" class="p-0 text-body-secondary" :caret="false" aria-label="Opciones">⋯</CDropdownToggle>
               <CDropdownMenu>
@@ -229,7 +263,7 @@ watch(() => route.fullPath, () => (q.value = ''))
             </CDropdown>
           </div>
           <div class="d-flex align-items-center gap-2 small text-body-secondary mt-1">
-            <span>{{ fecha(boveda.fechaDe(v)) }}</span>
+            <CIcon :icon="boveda.tipo(v) === 'video' ? 'cil-video' : boveda.tipo(v) === 'imagen' ? 'cil-image' : 'cil-file'" size="sm" />
             <CIcon v-if="v.m.location" icon="cil-location-pin" size="sm" title="Tiene ubicación" />
             <span class="ms-auto">{{ tamano(v.size) }}</span>
           </div>

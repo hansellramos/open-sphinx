@@ -21,6 +21,10 @@ export const ESTADOS = {
   error: { color: 'danger', texto: 'Error' },
 }
 
+const mayus = (s) => s.charAt(0).toUpperCase() + s.slice(1)
+export const dia = (d) => mayus(new Date(d).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))
+export const fechaCorta = (d) => new Date(d).toLocaleString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+
 export const mesAnio = (d) => {
   const s = new Date(d).toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })
   return s.charAt(0).toUpperCase() + s.slice(1)
@@ -52,4 +56,25 @@ export function vistaPrevia(mime = '', nombre = '') {
   if (mime.startsWith('video/')) return 'video'
   if (mime.startsWith('text/') || ['txt', 'md', 'json', 'csv', 'log'].includes(e)) return 'texto'
   return null
+}
+
+// <input type="datetime-local"> trabaja en hora local sin zona: 'AAAA-MM-DDTHH:mm'.
+const dos = (n) => String(n).padStart(2, '0')
+export const aLocal = (d) => {
+  if (!d) return ''
+  const x = new Date(d)
+  return `${x.getFullYear()}-${dos(x.getMonth() + 1)}-${dos(x.getDate())}T${dos(x.getHours())}:${dos(x.getMinutes())}`
+}
+export const deLocal = (s) => (s ? new Date(s).toISOString() : null)
+
+// Fecha escrita en el nombre del archivo, como la ponen WhatsApp (IMG-20231015-WA0012.jpg, "WhatsApp Image
+// 2023-10-15 at 10.20.30"), Android/Pixel (IMG_20231015_102030.jpg, PXL_…) o capturas. Sin hora → mediodía.
+// Devuelve hora local para datetime-local, o null. Lo pegado se nombra con la hora de pegar: no cuenta.
+export function fechaDelNombre(nombre) {
+  if (/^(pegado|nota)-/.test(nombre)) return null
+  const m = /(?:^|\D)((?:19|20)\d{2})[-_.]?(\d{2})[-_.]?(\d{2})(?:[ _T.-]*(?:at |a las )?(\d{2})[.:h_-]?(\d{2})(?:[.:m_-]?(\d{2}))?)?/i.exec(nombre)
+  if (!m) return null
+  const [a, me, d, h = '12', mi = '00'] = m.slice(1)
+  if (+me < 1 || +me > 12 || +d < 1 || +d > 31 || +h > 23 || +mi > 59 || +a > new Date().getFullYear()) return null
+  return `${a}-${me}-${d}T${dos(h)}:${mi}`
 }

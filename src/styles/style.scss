@@ -105,3 +105,12 @@ body { background-color: #f4f4f8; }
 .ver-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 2.5rem; height: 2.5rem; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .4); color: #fff; display: flex; align-items: center; justify-content: center; }
 .ver-ant { left: .5rem; }
 .ver-sig { right: .5rem; }
+// Galería en miniaturas (cuadritos, como en Fotos del iPhone)
+.grupo-dia { font-size: .85rem; font-weight: 600; margin: 1rem 0 .4rem; }
+.mini-grid { display: grid; gap: 2px; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); }
+@media (max-width: 575.98px) { .mini-grid { grid-template-columns: repeat(4, 1fr); } }
+.mini { padding: 0; border: 0; background: none; display: block; overflow: hidden; }
+.mini .thumb { aspect-ratio: 1; }
+.mini .thumb .dur { right: .2rem; bottom: .2rem; font-size: .65rem; }
+.mini-fav { position: absolute; left: .25rem; bottom: .25rem; color: #ffc107; filter: drop-shadow(0 0 2px rgba(0, 0, 0, .8)); }
+.subir-fecha { width: auto; max-width: 13.5rem; }

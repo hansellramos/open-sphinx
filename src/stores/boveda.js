@@ -74,6 +74,7 @@ export const useBovedaStore = defineStore('boveda', () => {
       items.value = await Promise.all(lista.map((v) => descifrar(v, prev.get(v.id))))
       await migrarLegado(lista)
       await aplicarSellados()
+      await aplicarAjustes()
       cargado.value = true
       programarSondeo()
     })().finally(() => (cargando = null))
@@ -118,7 +119,11 @@ export const useBovedaStore = defineStore('boveda', () => {
         const extra = await decryptJSON(await auth.abrirSellado(v.m.sellado.k), v.m.sellado.d)
         const nuevas = (extra.tags ?? []).filter((id) => etiqueta(id))
         const { sellado, ...m } = v.m
-        await guardarMeta(v, { ...m, tags: [...new Set([...(m.tags ?? []), ...nuevas])] }, true)
+        m.tags = [...new Set([...(m.tags ?? []), ...nuevas])]
+        // La fecha elegida a mano manda; la sacada del nombre solo si la foto no traía una propia (EXIF).
+        if (extra.takenAt && (extra.manual || !m.takenAt)) m.takenAt = extra.takenAt
+        if (extra.title) m.title = extra.title
+        await guardarMeta(v, m, true)
       } catch (e) {
         console.warn('No se pudieron aplicar las etiquetas de la subida', e)
       }
@@ -132,6 +137,32 @@ export const useBovedaStore = defineStore('boveda', () => {
   }
 
   // ---------- escritura (todo se cifra aquí antes de enviarse) ----------
+
+  // Cambios hechos desde Subir cuando el archivo ya se estaba subiendo: se aplican cuando aparece procesado
+  // (se reconoce por la huella). Solo en memoria: si se recarga la app antes, se pierden.
+  const ajustes = new Map() // sha256 → { tags (nombres), takenAt, manual, title? }
+  async function aplicarAjuste(v, a) {
+    const cambios = { tags: await etiquetasPara(a.tags ?? []) }
+    if (a.takenAt && (a.manual || !v.m.takenAt)) cambios.takenAt = a.takenAt
+    if (a.title) cambios.title = a.title
+    return guardarMeta(v, cambios)
+  }
+  async function ajustarPorHuella(sha, a) {
+    const v = huellas.value.get(sha)
+    if (v && !v.m.sellado) {
+      ajustes.delete(sha)
+      return aplicarAjuste(v, a)
+    }
+    ajustes.set(sha, a)
+  }
+  async function aplicarAjustes() {
+    for (const [sha, a] of ajustes) {
+      const v = huellas.value.get(sha)
+      if (!v || v.m.sellado) continue
+      ajustes.delete(sha)
+      await aplicarAjuste(v, a).catch((e) => console.warn('No se pudo aplicar el cambio', e))
+    }
+  }
 
   async function guardarMeta(v, cambios, reemplazar = false) {
     const m = reemplazar ? cambios : { ...v.m, ...cambios }
@@ -305,7 +336,7 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
-    huellas, secuencia, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
+    huellas, secuencia, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     favorito, renombrar, borrar, thumbUrl, publicKey: () => publicKey,
   }
 })

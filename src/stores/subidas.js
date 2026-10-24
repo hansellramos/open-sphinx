@@ -1,12 +1,14 @@
 // Cola de subidas (una a la vez, reanudables con tus). Vive en un store para que siga
 // subiendo aunque navegues a otra pantalla.
 // Antes de subir cada archivo se calcula su huella (SHA-256) y se compara con las de la bóveda (que van en
-// los metadatos cifrados): si ya está, no se sube. Las etiquetas elegidas viajan selladas con la pública.
+// los metadatos cifrados): si ya está, no se sube. Etiquetas y fecha (la del nombre, p. ej. de WhatsApp, o la
+// elegida) viajan selladas con la pública; si se cambian cuando ya se está subiendo, se aplican al terminar.
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import * as tus from 'tus-js-client'
 import { createSHA256 } from 'hash-wasm'
 import { useBovedaStore } from '@/stores/boveda'
+import { deLocal, fechaDelNombre } from '@/lib/formato'
 
 const PEDAZO = 8 * 1024 * 1024
 let seq = 0
@@ -28,9 +30,11 @@ export const useSubidasStore = defineStore('subidas', () => {
   let revisando = false
 
   function agregar(files) {
-    const tags = [...etiquetas.value]
     for (const file of files)
-      items.value.push({ id: ++seq, file, nombre: file.name, tam: file.size, progreso: 0, estado: 'revisando', error: null, tags, sha: null, igual: null })
+      items.value.push({
+        id: ++seq, file, nombre: file.name, tam: file.size, progreso: 0, estado: 'revisando', error: null,
+        tags: [...etiquetas.value], fecha: fechaDelNombre(file.name), manual: false, titulo: null, sha: null, igual: null,
+      })
     revisar()
   }
 
@@ -71,10 +75,13 @@ export const useSubidasStore = defineStore('subidas', () => {
     const boveda = useBovedaStore()
     let extra = ''
     try {
-      if (it.tags.length) extra = JSON.stringify(await boveda.sellar({ tags: await boveda.etiquetasPara(it.tags) }))
+      const datos = {}
+      if (it.tags.length) datos.tags = await boveda.etiquetasPara(it.tags)
+      if (it.fecha) Object.assign(datos, { takenAt: deLocal(it.fecha), manual: it.manual })
+      if (Object.keys(datos).length) extra = JSON.stringify(await boveda.sellar(datos))
     } catch (e) {
       it.estado = 'error'
-      it.error = `No se pudieron preparar las etiquetas: ${e.message}`
+      it.error = `No se pudieron preparar las etiquetas y la fecha: ${e.message}`
       return siguiente()
     }
     const up = new tus.Upload(it.file, {
@@ -105,6 +112,27 @@ export const useSubidasStore = defineStore('subidas', () => {
     })
   }
 
+  // Etiquetas o fecha de un archivo de la lista. Antes de empezar a subirlo basta con guardarlas aquí; si ya
+  // salió, quedan pendientes en la bóveda y se aplican cuando termine de procesarse.
+  function cambiar(it, c) {
+    if ('tags' in c) it.tags = c.tags
+    if ('fecha' in c) {
+      it.fecha = c.fecha || null
+      it.manual = true
+      // Lo pegado lleva la hora de pegar en el nombre: se cambia por la fecha elegida.
+      const m = /^pegado-.*?(\.\w+)$/.exec(it.nombre)
+      if (m && it.fecha) {
+        const nuevo = `pegado-${it.fecha.replace('T', '_').replace(/:/g, '-')}`
+        if (it.estado === 'subiendo' || it.estado === 'listo') it.titulo = nuevo
+        it.nombre = nuevo + m[1]
+      }
+    }
+    if ((it.estado === 'subiendo' || it.estado === 'listo') && it.sha)
+      useBovedaStore()
+        .ajustarPorHuella(it.sha, { tags: it.tags, takenAt: deLocal(it.fecha), manual: it.manual, ...(it.titulo && { title: it.titulo }) })
+        .catch((e) => console.warn('No se pudo guardar el cambio', e))
+  }
+
   function reintentar(it) {
     if (!it.file) return
     it.estado = 'esperando'
@@ -131,5 +159,5 @@ export const useSubidasStore = defineStore('subidas', () => {
     if (activa.value) e.preventDefault()
   })
 
-  return { items, etiquetas, activa, agregar, reintentar, subirIgual, cancelar, limpiarListos }
+  return { items, etiquetas, activa, agregar, cambiar, reintentar, subirIgual, cancelar, limpiarListos }
 })

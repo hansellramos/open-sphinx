@@ -5,6 +5,7 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useBovedaStore } from '@/stores/boveda'
 import { useCompartir } from '@/lib/compartir'
+import { fechaCorta } from '@/lib/formato'
 
 const props = defineProps({ ids: { type: Array, required: true }, inicial: { type: String, required: true } })
 const emit = defineEmits(['cerrar'])
@@ -266,7 +267,7 @@ const compartirActual = () => {
       <div v-show="ui" class="vc-barra">
         <button type="button" class="vc-btn" title="Cerrar" @click="cerrar()"><CIcon icon="cil-x" size="xl" /></button>
         <div class="vc-titulo text-truncate">
-          <div class="text-truncate">{{ actual?.m?.title }}</div>
+          <div class="text-truncate">{{ actual && fechaCorta(boveda.fechaDe(actual)) }}</div>
           <div class="small opacity-75">{{ idx + 1 }} de {{ ids.length }}</div>
         </div>
         <button type="button" class="vc-btn" title="Compartir" :disabled="progreso !== null" @click="compartirActual">
