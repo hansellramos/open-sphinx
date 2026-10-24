@@ -135,6 +135,30 @@ async function respaldoDiario() {
   console.log(`[worker] respaldo de la base: ${destino}`)
 }
 
+// Subidas huérfanas (material SIN cifrar): una completa sin elemento que la use (p. ej. el worker se cayó
+// después de cifrarla y antes de borrarla) se borra a los 10 min; una incompleta abandonada, a los 7 días
+// (mientras tanto se puede reanudar).
+export async function limpiarSubidas(ahora = Date.now()) {
+  let borradas = 0
+  for (const f of (await readdir(paths.subidas)).filter((x) => x.endsWith('.json'))) {
+    const id = f.slice(0, -5)
+    if (await prisma.video.count({ where: { uploadId: id } })) continue
+    const archivo = path.join(paths.subidas, id)
+    const info = await stat(archivo).catch(() => null)
+    const json = await stat(path.join(paths.subidas, f))
+    const declarado = JSON.parse(await readFile(path.join(paths.subidas, f), 'utf8').catch(() => '{}')).size
+    const edad = ahora - (info?.mtimeMs ?? json.mtimeMs)
+    const completa = info && Number.isFinite(declarado) && info.size === declarado
+    if ((completa && edad > 10 * 60_000) || edad > 7 * 24 * 3600_000) {
+      await borrarSubida(id)
+      borradas++
+    }
+  }
+  if (borradas) console.log(`[worker] subidas huérfanas borradas: ${borradas}`)
+  return borradas
+}
+let ultimaLimpieza = 0
+
 async function tomarTrabajo() {
   const job = await prisma.job.findFirst({ where: { status: 'pendiente' }, orderBy: { createdAt: 'asc' } })
   if (!job) return null
@@ -184,6 +208,10 @@ if (import.meta.main) {
   for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => (parar = true))
   while (!parar) {
     await respaldoDiario().catch((e) => console.error('[worker] respaldo falló:', e.message))
+    if (Date.now() - ultimaLimpieza > 10 * 60_000) {
+      ultimaLimpieza = Date.now()
+      await limpiarSubidas().catch((e) => console.error('[worker] limpieza de subidas falló:', e.message))
+    }
     if (Date.now() - ultimoVencer > 60_000) {
       ultimoVencer = Date.now()
       await vencerExportaciones().then((n) => n && console.log(`[worker] ${n} exportación(es) vencida(s) borrada(s)`), (e) => console.error('[worker] vencer exportaciones:', e.message))

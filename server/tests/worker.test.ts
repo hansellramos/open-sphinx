@@ -318,3 +318,22 @@ test('un trabajo que tumbó el worker varias veces se marca con error y la cola 
   assert.equal(job.status, 'error')
   assert.equal((await prisma.video.findUniqueOrThrow({ where: { id: v.id } })).status, 'error')
 })
+
+test('borra subidas huérfanas sin cifrar: completas a los 10 min, incompletas a los 7 días', async () => {
+  const { limpiarSubidas } = await import('../worker.ts')
+  const escribir = (id, bytes, declarado) => {
+    writeFileSync(path.join(paths.subidas, id), Buffer.alloc(bytes))
+    writeFileSync(path.join(paths.subidas, `${id}.json`), JSON.stringify({ id, size: declarado }))
+  }
+  escribir('huerfana-completa', 100, 100)
+  escribir('a-medias', 50, 100)
+  escribir('en-uso', 100, 100)
+  await prisma.video.create({ data: { originalName: 'en-uso.png', uploadId: 'en-uso' } })
+  const existe = (id) => existsSync(path.join(paths.subidas, id))
+  assert.equal(await limpiarSubidas(Date.now()), 0, 'recién subidas: no se tocan')
+  assert.equal(await limpiarSubidas(Date.now() + 11 * 60_000), 1)
+  assert.ok(!existe('huerfana-completa') && !existe('huerfana-completa.json'))
+  assert.ok(existe('a-medias') && existe('en-uso'), 'la incompleta se puede reanudar; la que está en cola no se toca')
+  assert.equal(await limpiarSubidas(Date.now() + 8 * 24 * 3600_000), 1)
+  assert.ok(!existe('a-medias') && existe('en-uso'))
+})
