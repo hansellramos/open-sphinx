@@ -5,6 +5,7 @@ import { ref, computed, watch, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/services/api'
 import { sufijoExport } from '@/lib/formato'
+import { conRotacion, leerRotacion, sumarRotacion } from '@/lib/rotacion'
 import { useAuthStore } from '@/stores/auth'
 import { aadParte, decryptBlob, decryptJSON, encryptJSON, newFileKey, nombreParte, sealFileKey } from '@shared/crypto.js'
 
@@ -299,7 +300,10 @@ export const useBovedaStore = defineStore('boveda', () => {
     const ruta = exp ? `/api/exportados/${exp.id}` : undefined
     const lista = new TextDecoder().decode(await bajar(v, 'index.m3u8', ruta))
     const segs = lista.split('\n').map((l) => l.trim()).filter((l) => /^seg_\d{5}\.m4s$/.test(l))
-    const partes = [await decryptBlob(key, await bajar(v, 'init.mp4', ruta))]
+    // Que el archivo compartido se vea como en la bóveda: giro = el del init + el elegido (meta.rotacion). Las
+    // exportaciones ya salen derechas (ffmpeg aplica el del init al recodificar), así que en ellas solo cuenta el elegido.
+    const init = new Uint8Array(await decryptBlob(key, await bajar(v, 'init.mp4', ruta)))
+    const partes = [conRotacion(init, sumarRotacion(exp ? 0 : leerRotacion(init), v.m.rotacion))]
     for (let i = 0; i < segs.length; i++) {
       partes.push(await decryptBlob(key, await bajar(v, segs[i], ruta)))
       progreso?.((i + 1) / segs.length)

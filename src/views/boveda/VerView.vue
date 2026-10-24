@@ -15,6 +15,7 @@ import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
 import VisorCompleto from '@/components/elementos/VisorCompleto.vue'
 import { useCompartir } from '@/lib/compartir'
+import { conRotacion, leerRotacion, sumarRotacion } from '@/lib/rotacion'
 
 const PREVIA_AUTO = 50 * 1024 * 1024 // más grande que esto, la vista previa se pide a mano
 
@@ -86,6 +87,7 @@ function toqueFin(e) {
   if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) ir(dx < 0 ? siguiente.value : anterior.value)
 }
 function tecla(e) {
+  if (e.key === 'Escape' && completo.value) return (completo.value = false)
   if (visor.value || editando.value || ubicando.value || e.target.closest('input, textarea, [contenteditable]')) return
   if (e.key === 'ArrowRight') ir(siguiente.value)
   else if (e.key === 'ArrowLeft') ir(anterior.value)
@@ -94,11 +96,15 @@ const compartirEste = () => compartir(item.value, tipo.value === 'imagen' ? arch
 
 const etiquetaFecha = computed(() => (tipo.value === 'video' ? 'Grabado' : tipo.value === 'imagen' ? 'Tomada' : 'Fecha'))
 
-function loaderDescifrador(key, sufijo = '') {
+// En el init.mp4 viene la rotación del celular (p. ej. vertical del iPhone): hls.js la ignora, así que se lee,
+// se pone en cero (para que ningún navegador la aplique dos veces) y se gira el <video> con CSS.
+function loaderDescifrador(key, sufijo = '', alInit = null) {
   const Base = Hls.DefaultConfig.loader
   return class extends Base {
     load(context, config, callbacks) {
-      const lista = context.url.split('?')[0].endsWith('.m3u8')
+      const ruta = context.url.split('?')[0]
+      const lista = ruta.endsWith('.m3u8')
+      const init = ruta.endsWith('/init.mp4')
       if (sufijo && !context.url.includes('?')) context.url += `?${sufijo}`
       if (lista) return super.load(context, config, callbacks)
       const onSuccess = callbacks.onSuccess
@@ -106,6 +112,11 @@ function loaderDescifrador(key, sufijo = '') {
         ...callbacks,
         onSuccess: (response, stats, ctx, details) => {
           decryptBlob(key, response.data)
+            .then((plano) => {
+              if (!init) return plano
+              alInit?.(leerRotacion(plano))
+              return conRotacion(plano, 0).buffer
+            })
             .then((plano) => onSuccess({ ...response, data: plano }, stats, ctx, details))
             .catch(() => callbacks.onError({ code: 0, text: 'No se pudo descifrar el fragmento' }, ctx, details, stats))
         },
@@ -162,13 +173,59 @@ async function reproducir() {
   await nextTick() // el <video> aparece cuando ya se sabe el tipo
   hls?.destroy()
   error.value = ''
-  hls = new Hls({ loader: loaderDescifrador(key, viendoExp.value ? '' : boveda.marca(item.value)), maxBufferLength: 30, maxMaxBufferLength: 60 })
+  rotInit.value = 0
+  hls = new Hls({
+    // Las exportaciones ya salen derechas (ffmpeg aplica la rotación al recodificar): su base es 0.
+    loader: loaderDescifrador(key, viendoExp.value ? '' : boveda.marca(item.value), viendoExp.value ? null : (g) => (rotInit.value = g)),
+    maxBufferLength: 30,
+    maxMaxBufferLength: 60,
+  })
   hls.on(Hls.Events.ERROR, (_, d) => {
     if (d.fatal) error.value = `Error de reproducción: ${d.details}`
   })
   hls.loadSource(viendoExp.value ? `/api/exportados/${viendoExp.value.id}/index.m3u8` : `/api/videos/${item.value.id}/archivo/index.m3u8`)
   hls.attachMedia(el.value)
 }
+
+// ---------------- rotación ----------------
+// giro = la del archivo (rotInit) + la que eligió el usuario (meta.rotacion), en sentido horario. Con giro el
+// <video> se gira con CSS y los controles nativos quedarían de lado: se usan unos propios debajo.
+const rotInit = ref(0)
+const giro = computed(() => (tipo.value === 'video' ? sumarRotacion(rotInit.value, m.value?.rotacion) : 0))
+const tumbado = computed(() => giro.value % 180 === 90)
+const codificado = ref(null) // { w, h } del video tal como viene (sin girar)
+const completo = ref(false) // pantalla completa propia (la nativa del iPhone no respeta el giro)
+const estado = ref({ pausado: true, t: 0, total: 0, mudo: false })
+const proporcion = computed(() => {
+  const c = codificado.value
+  if (c?.w && c?.h) return tumbado.value ? c.h / c.w : c.w / c.h
+  // Antes de saberlo: meta.width/height ya vienen derechos (sin el giro del usuario).
+  const w = m.value?.width || 16, h = m.value?.height || 9
+  return (m.value?.rotacion ?? 0) % 180 === 90 ? h / w : w / h
+})
+const estiloMarco = computed(() =>
+  giro.value && !completo.value ? { aspectRatio: String(proporcion.value), width: `min(100%, calc(80vh * ${proporcion.value}))` } : null,
+)
+const estiloVideo = computed(() =>
+  giro.value
+    ? { width: tumbado.value ? '100cqh' : '100cqw', height: tumbado.value ? '100cqw' : '100cqh', transform: `translate(-50%, -50%) rotate(${giro.value}deg)` }
+    : null,
+)
+function medirVideo() {
+  codificado.value = { w: el.value.videoWidth, h: el.value.videoHeight }
+  sincronizar()
+}
+function sincronizar() {
+  const v = el.value
+  if (v) estado.value = { pausado: v.paused, t: v.currentTime, total: Number.isFinite(v.duration) ? v.duration : 0, mudo: v.muted }
+}
+const alternar = () => (el.value.paused ? el.value.play() : el.value.pause())
+const buscar = (e) => (el.value.currentTime = Number(e.target.value))
+const mudo = () => (el.value.muted = !el.value.muted)
+const hora = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+const rotar = accion(async () => {
+  await boveda.guardarMeta(item.value, { rotacion: sumarRotacion(m.value.rotacion, 90) })
+})
 
 // Exportar (más pequeño y/o con filtro): lo hace la NAS con la clave de este video, que se le presta solo para eso.
 const pedirExport = accion(async () => {
@@ -279,7 +336,18 @@ onBeforeUnmount(() => {
 
   <div class="ver-medio" @touchstart.passive="toqueInicio" @touchend.passive="tipo !== 'video' && toqueFin($event)">
   <!-- disableremoteplayback: requerido por ManagedMediaSource en iPhone -->
-  <video v-if="tipo === 'video'" v-show="!error" ref="el" class="player" controls playsinline autoplay disableremoteplayback></video>
+  <div v-if="tipo === 'video'" v-show="!error" class="marco-video" :class="{ girado: giro, completo: giro && completo }" :style="estiloMarco">
+    <video ref="el" class="player" :style="estiloVideo" :controls="!giro" playsinline autoplay disableremoteplayback
+      @loadedmetadata="medirVideo" @play="sincronizar" @pause="sincronizar" @timeupdate="sincronizar" @volumechange="sincronizar" @durationchange="sincronizar" @click="giro && alternar()"></video>
+    <div v-if="giro" class="controles-video">
+      <button type="button" :title="estado.pausado ? 'Reproducir' : 'Pausar'" @click="alternar"><CIcon :icon="estado.pausado ? 'cil-media-play' : 'cil-media-pause'" /></button>
+      <span class="small">{{ hora(estado.t) }}</span>
+      <input type="range" class="form-range flex-grow-1" min="0" :max="estado.total || 0" step="0.1" :value="estado.t" aria-label="Posición" @input="buscar" />
+      <span class="small">{{ hora(estado.total) }}</span>
+      <button type="button" :title="estado.mudo ? 'Activar sonido' : 'Silenciar'" @click="mudo"><CIcon :icon="estado.mudo ? 'cil-volume-off' : 'cil-volume-high'" /></button>
+      <button type="button" :title="completo ? 'Salir de pantalla completa' : 'Pantalla completa'" @click="completo = !completo"><CIcon :icon="completo ? 'cil-fullscreen-exit' : 'cil-fullscreen'" /></button>
+    </div>
+  </div>
   <div v-if="tipo === 'video' && viendoExp" class="small text-body-secondary mt-1">
     <CIcon icon="cil-share-all" size="sm" class="me-1" />Viendo la exportación ({{ etiquetaExport(viendoExp) }})
     <CButton color="link" size="sm" class="py-0" @click="ver(null)">Ver el original</CButton>
@@ -336,6 +404,10 @@ onBeforeUnmount(() => {
         <CButton color="link" size="sm" class="py-0" @click="renombrar">Renombrar</CButton>
       </div>
       <div v-if="m.device" class="mb-1"><CIcon icon="cil-devices" class="me-2 text-body-secondary" />{{ m.device }}</div>
+      <div v-if="tipo === 'video'" class="mb-1">
+        <CIcon icon="cil-action-redo" class="me-2 text-body-secondary" />{{ m.rotacion ? `Girado ${m.rotacion}°` : 'Sin girar' }}
+        <CButton color="link" size="sm" class="py-0" title="Girar 90° a la derecha" aria-label="Rotar el video" @click="rotar">Rotar</CButton>
+      </div>
       <div v-if="tipo === 'video'" class="mb-1">
         <CIcon icon="cil-share-all" class="me-2 text-body-secondary" />Exportar
         <CButton color="link" size="sm" class="py-0" title="Exportar más pequeño o con filtro" @click="exportando = { alto: altosPosibles[0] ?? null, filtro: null }">Nueva…</CButton>
