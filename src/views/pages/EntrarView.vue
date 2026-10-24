@@ -15,7 +15,7 @@ const conSesion = computed(() => !!auth.estado?.sesion)
 
 function continuar() {
   if (!auth.estado?.configurada) return router.push({ name: 'Configurar' })
-  router.push(route.query.r || '/galeria')
+  router.replace(route.query.r || '/galeria') // la pantalla de bloqueo no queda en el historial
 }
 
 async function entrar() {

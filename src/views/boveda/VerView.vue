@@ -1,3 +1,14 @@
+<script>
+// Pedido de reproducir al cargar (sobrevive a que la vista se vuelva a montar).
+let reproducirId = null
+const pedirReproducir = (id) => (reproducirId = id)
+function tomarReproducir(id) {
+  const si = reproducirId === id
+  reproducirId = null
+  return si
+}
+</script>
+
 <script setup>
 // Ver un elemento. Video: hls.js baja cada fragmento cifrado y este loader lo descifra. Foto: se baja y
 // descifra la imagen (al tocarla, pantalla completa con zoom). Archivo: vista previa si el navegador la sabe
@@ -71,10 +82,19 @@ const pos = computed(() => secuencia.value.indexOf(route.params.id))
 const anterior = computed(() => (pos.value > 0 ? secuencia.value[pos.value - 1] : null))
 const siguiente = computed(() => (pos.value >= 0 ? secuencia.value[pos.value + 1] ?? null : null))
 const ir = (id) => id && router.replace(`/ver/${id}`)
+// Atrás: a la pantalla anterior de la app; si se entró directo (p. ej. tras desbloquear), a la galería.
+const volver = () => (window.history.state?.back ? router.back() : router.push('/galeria'))
 const idsVisor = computed(() => secuencia.value.filter((id) => boveda.tipo(boveda.items.find((v) => v.id === id)) !== 'archivo'))
-function cerrarVisor(id) {
+// Los videos no arrancan solos; sí cuando se pide (▶ en pantalla completa, «Ver» de una exportación). La vista
+// se vuelve a montar al cambiar de elemento, por eso el pedido va en una variable del módulo.
+function cerrarVisor(id, reproducir = false) {
   visor.value = false
-  if (id !== route.params.id) ir(id)
+  if (id === route.params.id) {
+    if (reproducir) el.value?.play().catch(() => {})
+    return
+  }
+  if (reproducir) pedirReproducir(id)
+  ir(id)
 }
 
 // Deslizar a los lados sobre la foto o el archivo (en el video no, que choca con la barra de tiempo).
@@ -186,6 +206,9 @@ async function reproducir() {
   })
   hls.loadSource(viendoExp.value ? `/api/exportados/${viendoExp.value.id}/index.m3u8` : `/api/videos/${item.value.id}/archivo/index.m3u8`)
   hls.attachMedia(el.value)
+  if (tomarReproducir(item.value.id)) {
+    hls.once(Hls.Events.MANIFEST_PARSED, () => el.value?.play().catch(() => {}))
+  }
 }
 
 // ---------------- rotación ----------------
@@ -263,6 +286,7 @@ const reemplazarOriginal = accion(async () => {
 
 const ver = accion(async (id) => {
   viendo.value = id
+  pedirReproducir(item.value.id)
   await reproducir()
 })
 async function compartirE(e) {
@@ -311,7 +335,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="d-flex align-items-center gap-2 mb-3">
-    <CButton color="secondary" variant="ghost" @click="router.back()"><CIcon icon="cil-arrow-left" /></CButton>
+    <CButton color="secondary" variant="ghost" title="Atrás" @click="volver"><CIcon icon="cil-arrow-left" /></CButton>
     <template v-if="m">
       <form v-if="editando" class="d-flex gap-2 flex-grow-1" @submit.prevent="guardarTitulo">
         <CFormInput v-model="titulo" maxlength="200" autofocus />
@@ -338,7 +362,7 @@ onBeforeUnmount(() => {
   <div class="ver-medio" @touchstart.passive="toqueInicio" @touchend.passive="tipo !== 'video' && toqueFin($event)">
   <!-- disableremoteplayback: requerido por ManagedMediaSource en iPhone -->
   <div v-if="tipo === 'video'" v-show="!error" class="marco-video" :class="{ girado: giro, completo: giro && completo }" :style="estiloMarco">
-    <video ref="el" class="player" :style="estiloVideo" :controls="!giro" playsinline autoplay disableremoteplayback
+    <video ref="el" class="player" :style="estiloVideo" :controls="!giro" playsinline disableremoteplayback
       @loadedmetadata="medirVideo" @play="sincronizar" @pause="sincronizar" @timeupdate="sincronizar" @volumechange="sincronizar" @durationchange="sincronizar" @click="giro && alternar()"></video>
     <div v-if="giro" class="controles-video">
       <button type="button" :title="estado.pausado ? 'Reproducir' : 'Pausar'" @click="alternar"><CIcon :icon="estado.pausado ? 'cil-media-play' : 'cil-media-pause'" /></button>

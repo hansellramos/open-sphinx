@@ -94,7 +94,8 @@ async function ir(dir) {
   Object.assign(desliz, { dx: 0, dy: 0 })
   Object.assign(z, { s: 1, tx: 0, ty: 0 })
 }
-const cerrar = (id = props.ids[idx.value]) => emit('cerrar', id)
+// reproducir: se tocó ▶ en un video (al cerrar, que empiece a sonar).
+const cerrar = (id = props.ids[idx.value], reproducir = false) => emit('cerrar', id, reproducir)
 
 // ---------- gestos ----------
 
@@ -260,7 +261,7 @@ const compartirActual = () => {
         </template>
         <div v-else-if="boveda.tipo(itemDe(s.id)) === 'video'" class="vc-video">
           <img v-if="cargados[s.id]?.url" :src="cargados[s.id].url" class="vc-foto" alt="" draggable="false" />
-          <button type="button" class="vc-play" title="Reproducir" @click="cerrar(s.id)"><CIcon icon="cil-media-play" size="3xl" /></button>
+          <button type="button" class="vc-play" title="Reproducir" @click="cerrar(s.id, true)"><CIcon icon="cil-media-play" size="3xl" /></button>
         </div>
       </div>
 

@@ -13,7 +13,7 @@ const router = useRouter()
 // Si se bloqueó (botón o bloqueo automático), a la pantalla de entrada.
 watch(
   () => auth.desbloqueada,
-  (d) => !d && !router.currentRoute.value.meta.public && router.push({ name: 'Entrar', query: { r: router.currentRoute.value.fullPath } }),
+  (d) => !d && !router.currentRoute.value.meta.public && router.replace({ name: 'Entrar', query: { r: router.currentRoute.value.fullPath } }),
 )
 
 const { isColorModeSet, setColorMode } = useColorModes('boveda-theme')

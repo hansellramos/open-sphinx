@@ -202,6 +202,7 @@ try {
   await visorC.getByTitle('Reproducir').click()
   await page.locator('video.player').waitFor()
   if (await visorC.count()) throw new Error('el visor no se cerró al reproducir el video')
+  await page.waitForFunction(() => document.querySelector('video.player')?.paused === false, null, { timeout: 30000 }) // ▶ sí lo arranca
   // Sin hoja de compartir (como en un navegador de escritorio que no la tiene): se descarga
   await page.evaluate(() => Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true }))
   const [mp4] = await Promise.all([page.waitForEvent('download'), page.getByTitle('Compartir').click()])
@@ -338,7 +339,8 @@ try {
   if (mv.codW !== 640 || mv.codH !== 360) throw new Error(`el video codificado debería venir acostado: ${JSON.stringify(mv)}`)
   if (!(mv.marco[1] > mv.marco[0] * 1.5) || Math.abs(mv.video[0] - mv.marco[0]) > 2 || Math.abs(mv.video[1] - mv.marco[1]) > 2 || mv.controles || !mv.ancho)
     throw new Error(`el video vertical no se ve de pie o se desborda: ${JSON.stringify(mv)}`)
-  await page.getByTitle('Pausar').waitFor() // controles propios (los nativos quedarían de lado)
+  await page.locator('.controles-video').getByTitle('Reproducir').click() // controles propios (los nativos quedarían de lado); no arranca solo
+  await page.getByTitle('Pausar').waitFor()
   const tamOriginal = page.viewportSize()
   await page.setViewportSize({ width: 390, height: 844 }) // celular
   await page.waitForTimeout(300)
@@ -377,6 +379,25 @@ try {
   await page.waitForURL(/#\/galeria/)
   await page.locator('.thumb img').first().waitFor()
   paso('desbloquea con la passkey (PRF)')
+
+  // El video no arranca solo; bloquear y desbloquear en el video y luego Atrás: a la galería, no al bloqueo.
+  await page.locator('.video-card', { hasText: '2021' }).first().click()
+  await page.waitForFunction(() => document.querySelector('video.player')?.readyState >= 1, null, { timeout: 30000 })
+  await page.waitForTimeout(1500)
+  if (!(await page.evaluate(() => document.querySelector('video.player').paused))) throw new Error('el video arrancó solo')
+  const urlVideo = page.url()
+  await page.getByRole('button', { name: /Bloquear/ }).click()
+  await page.waitForURL(/#\/entrar/)
+  await page.getByRole('button', { name: /Desbloquear con passkey/ }).click()
+  await page.waitForURL(urlVideo)
+  await page.getByTitle('Atrás').click()
+  await page.waitForURL(/#\/galeria/)
+  await page.goForward()
+  await page.waitForURL(urlVideo)
+  await page.goBack()
+  await page.waitForURL(/#\/galeria/)
+  if (await page.getByRole('button', { name: /Desbloquear con passkey/ }).count()) throw new Error('atrás volvió a la pantalla de bloqueo')
+  paso('el video no arranca solo; tras desbloquear, Atrás vuelve a la galería y no al bloqueo')
 
   // Usar una exportación (480p, sin filtro) como el video: más liviano, se sigue viendo y compartiendo bien
   // (aunque el navegador tenga en caché los fragmentos viejos con el mismo nombre).

@@ -39,6 +39,8 @@ router.beforeEach(async (to) => {
     if (e.passkeys && !e.sesion) return to.name === 'Entrar' ? true : { name: 'Entrar' }
     return to.name === 'Configurar' ? true : { name: 'Configurar' }
   }
+  // Ya desbloqueada: volver (atrás) a la pantalla de bloqueo lleva a donde iba, no a bloquear.
+  if (to.name === 'Entrar' && e.sesion && auth.desbloqueada) return { path: typeof to.query.r === 'string' ? to.query.r : '/galeria', replace: true }
   if (to.meta.public) return to.name === 'Configurar' ? { name: 'Entrar' } : true
   if (!e.sesion || !auth.desbloqueada) return { name: 'Entrar', query: to.fullPath !== '/galeria' ? { r: to.fullPath } : {} }
   return true

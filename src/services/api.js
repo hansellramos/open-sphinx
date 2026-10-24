@@ -25,7 +25,7 @@ async function request(method, url, { body, params } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   })
   if (res.status === 401 && !url.startsWith('/auth/')) {
-    router.push({ name: 'Entrar', query: { r: router.currentRoute.value.fullPath, expirada: 1 } })
+    router.replace({ name: 'Entrar', query: { r: router.currentRoute.value.fullPath, expirada: 1 } })
   }
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null
   if (!res.ok) throw new ApiError(data?.error || 'Ocurrió un error', res.status, data)
