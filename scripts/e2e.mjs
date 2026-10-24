@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const dir = mkdtempSync(path.join(tmpdir(), 'boveda-e2e-'))
-const PORT = 3199
+const PORT = Number(process.env.E2E_PORT ?? 3199)
 const env = { ...process.env, DATA_DIR: dir, DATABASE_URL: `file:${dir}/db/boveda.db`, PORT: String(PORT), RP_ID: 'localhost', ORIGIN: `http://localhost:${PORT}`, SESSION_SECRET: 'e2e' }
 execFileSync('npx', ['prisma', 'migrate', 'deploy'], { env, stdio: 'ignore' })
 const video = path.join(dir, 'prueba.mov')
@@ -24,6 +24,11 @@ writeFileSync(foto, conExif(readFileSync(`${foto}.base.jpg`), { fecha: '2023:07:
 // Foto reenviada por WhatsApp: sin EXIF, con la fecha en el nombre.
 const fotoWa = path.join(dir, 'IMG-20190305-WA0001.jpg')
 execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=600x400', '-frames:v', '1', fotoWa])
+// Video vertical como el del iPhone: se graba acostado (640×360) con la indicación de girarlo 90° a la derecha.
+const vertical = path.join(dir, 'vertical.mov')
+execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30', '-t', '8', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '30', `${vertical}.base.mov`])
+execFileSync('ffmpeg', ['-loglevel', 'error', '-display_rotation', '-90', '-i', `${vertical}.base.mov`, '-c', 'copy',
+  '-metadata', 'com.apple.quicktime.creationdate=2020-05-01T10:00:00-0500', '-movflags', 'use_metadata_tags', vertical])
 const notas = path.join(dir, 'notas-secretas.txt')
 const textoNotas = 'Contenido confidencial de prueba\n'.repeat(50)
 writeFileSync(notas, textoNotas)
@@ -311,6 +316,49 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.video-card').length > 1)
   await page.getByRole('button', { name: 'Quitar filtros' }).click()
   paso('filtrar por varias etiquetas: todas o alguna')
+
+  // Video vertical: se ve de pie (el reproductor gira el <video>), Rotar lo gira 90° más, persiste y se comparte así.
+  await page.goto(`${base}/#/subir`)
+  await page.locator('input[type=file]').setInputFiles([vertical])
+  await page.locator('.card', { hasText: 'vertical' }).getByText('Subido · en cola').waitFor({ timeout: 60000 })
+  await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
+  await page.locator('.video-card', { hasText: '1 de may de 2020' }).click({ timeout: 60000 })
+  await page.waitForURL(/#\/ver\/[0-9a-f-]+/)
+  const urlVertical = page.url()
+  const medidas = () => page.evaluate(() => {
+    const v = document.querySelector('video.player'), marco = document.querySelector('.marco-video').getBoundingClientRect(), r = v.getBoundingClientRect()
+    return { transform: v.style.transform, codW: v.videoWidth, codH: v.videoHeight, marco: [marco.width, marco.height], video: [r.width, r.height], controles: v.controls, ancho: document.documentElement.scrollWidth <= window.innerWidth }
+  })
+  await page.waitForFunction(() => document.querySelector('video.player')?.videoWidth > 0, null, { timeout: 30000 })
+  await page.waitForFunction(() => document.querySelector('video.player')?.style.transform.includes('rotate(90deg)'), null, { timeout: 10000 })
+  let mv = await medidas()
+  if (mv.codW !== 640 || mv.codH !== 360) throw new Error(`el video codificado debería venir acostado: ${JSON.stringify(mv)}`)
+  if (!(mv.marco[1] > mv.marco[0] * 1.5) || Math.abs(mv.video[0] - mv.marco[0]) > 2 || Math.abs(mv.video[1] - mv.marco[1]) > 2 || mv.controles || !mv.ancho)
+    throw new Error(`el video vertical no se ve de pie o se desborda: ${JSON.stringify(mv)}`)
+  await page.getByTitle('Pausar').waitFor() // controles propios (los nativos quedarían de lado)
+  const tamOriginal = page.viewportSize()
+  await page.setViewportSize({ width: 390, height: 844 }) // celular
+  await page.waitForTimeout(300)
+  mv = await medidas()
+  if (!(mv.marco[1] > mv.marco[0] * 1.5) || mv.marco[0] > 390 || Math.abs(mv.video[0] - mv.marco[0]) > 2 || !mv.ancho) throw new Error(`en el celular el video vertical no cabe: ${JSON.stringify(mv)}`)
+  await page.setViewportSize(tamOriginal)
+  await page.getByRole('button', { name: 'Rotar el video' }).click()
+  await page.waitForResponse((r) => r.url().includes('/meta') && r.request().method() === 'PUT')
+  await page.waitForFunction(() => document.querySelector('video.player')?.style.transform.includes('rotate(180deg)'))
+  mv = await medidas()
+  if (!(mv.marco[0] > mv.marco[1])) throw new Error(`girado 180° debería verse acostado: ${JSON.stringify(mv)}`)
+  await page.reload()
+  await page.waitForURL(/#\/entrar/)
+  await page.getByRole('button', { name: /Desbloquear con passkey/ }).click()
+  await page.waitForURL(urlVertical) // vuelve a donde estaba
+  await page.getByText('Girado 90°').waitFor()
+  await page.waitForFunction(() => document.querySelector('video.player')?.style.transform.includes('rotate(180deg)'), null, { timeout: 30000 })
+  await page.evaluate(() => Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true }))
+  const [mp4v] = await Promise.all([page.waitForEvent('download'), page.getByTitle('Compartir').click()])
+  const rotV = Number(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream_side_data=rotation', '-of', 'csv=p=0', await mp4v.path()]).toString().trim())
+  if (Math.abs(rotV) !== 180) throw new Error(`el video compartido debería ir girado 180°: ${rotV}`)
+  paso('video vertical: se ve de pie, Rotar gira 90° más (persiste tras recargar) y se comparte con ese giro')
+  await page.goto(`${base}/#/galeria`)
 
   await page.getByRole('button', { name: /Bloquear/ }).click()
   await page.waitForURL(/#\/entrar/)

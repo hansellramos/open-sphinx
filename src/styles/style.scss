@@ -102,6 +102,14 @@ body { background-color: #f4f4f8; }
 .vc-sig { right: .75rem; }
 @media (hover: none) { .vc-nav { display: none !important; } }
 .ver-medio { position: relative; }
+// Video girado (vertical del iPhone o girado a mano): el marco tiene la forma que se ve y el <video> va girado
+// dentro, medido con unidades del contenedor (cqw/cqh) para que quepa sin desbordarse.
+.marco-video.girado { position: relative; margin: 0 auto; background: #000; border-radius: .75rem; overflow: hidden; container-type: size; }
+.marco-video.girado .player { position: absolute; top: 50%; left: 50%; max-height: none; max-width: none; border-radius: 0; object-fit: contain; }
+.marco-video.completo { position: fixed; inset: 0; z-index: 1060; border-radius: 0; width: 100vw; height: 100dvh; }
+.controles-video { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: flex; align-items: center; gap: .5rem; padding: .4rem .6rem; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .6)); }
+.controles-video button { border: 0; background: none; color: inherit; padding: .25rem; display: flex; }
+.controles-video .form-range { min-width: 0; }
 .ver-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 2.5rem; height: 2.5rem; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .4); color: #fff; display: flex; align-items: center; justify-content: center; }
 .ver-ant { left: .5rem; }
 .ver-sig { right: .5rem; }
