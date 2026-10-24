@@ -33,6 +33,13 @@ export const useExportadosStore = defineStore('exportados', () => {
     return e
   }
 
+  // Usar una exportación como el video: la NAS borra el original para siempre.
+  async function reemplazar(e) {
+    const r = await api.post(`/exportados/${e.id}/reemplazar`)
+    items.value = items.value.filter((x) => x.id !== e.id)
+    return r
+  }
+
   async function borrar(e) {
     await api.del(`/exportados/${e.id}`)
     items.value = items.value.filter((x) => x.id !== e.id)
@@ -48,5 +55,5 @@ export const useExportadosStore = defineStore('exportados', () => {
     },
   )
 
-  return { items, cargada, de, ocupado, cargar, pedir, borrar }
+  return { items, cargada, de, ocupado, cargar, pedir, reemplazar, borrar }
 })

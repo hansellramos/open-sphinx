@@ -2,7 +2,7 @@
 import { Router } from 'express'
 import path from 'node:path'
 import { prisma } from '../db.ts'
-import { borrarExportacion, exportDir, exportPublica } from '../lib/exportar.ts'
+import { borrarExportacion, exportDir, exportPublica, reemplazarOriginal } from '../lib/exportar.ts'
 
 const r = Router()
 
@@ -20,6 +20,17 @@ r.get('/:id/:nombre', async (req, res) => {
   res.set('Cache-Control', 'private, max-age=604800, immutable') // cada exportación tiene su id
   res.type(nombre === 'index.m3u8' ? 'application/vnd.apple.mpegurl' : 'application/octet-stream')
   res.sendFile(path.join(exportDir(e.videoId, e.id), nombre === 'index.m3u8' ? nombre : `${nombre}.enc`), (err) => err && !res.headersSent && res.status(404).end())
+})
+
+// Usar esta exportación como el video (borra el original para siempre).
+r.post('/:id/reemplazar', async (req, res) => {
+  const e = await prisma.exportacion.findUnique({ where: { id: req.params.id } })
+  if (!e) return res.status(404).json({ error: 'No encontrada' })
+  if (e.status !== 'lista') return res.status(409).json({ error: 'Todavía no está lista' })
+  const ocupadas = await prisma.exportacion.count({ where: { videoId: e.videoId, status: { in: ['en_cola', 'procesando'] } } })
+  if (ocupadas) return res.status(409).json({ error: 'Hay otra exportación de este video en curso; espera a que termine' })
+  const v = await reemplazarOriginal(e)
+  res.json({ ok: true, size: v.size, segments: v.segments, readyAt: v.readyAt })
 })
 
 r.delete('/:id', async (req, res) => {

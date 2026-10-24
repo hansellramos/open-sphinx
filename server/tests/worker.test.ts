@@ -251,3 +251,70 @@ test('exportar: 720p y 480p con filtro, cifrado con la clave prestada, sin dejar
   assert.equal(await prisma.exportacion.count(), 0)
   assert.ok(existsSync(path.join(vdir, 'init.mp4.enc')))
 })
+
+test('usar una exportación como original: reemplaza los fragmentos, conserva la miniatura y borra el original', async () => {
+  const priv = await nuevaBoveda()
+  const { cicloExportacion, reemplazarOriginal, exportDir } = await import('../lib/exportar.ts')
+  const uploadId = 'up-reemplazar'
+  const input = path.join(paths.subidas, uploadId)
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440',
+    '-t', '8', '-c:v', 'libx264', '-crf', '15', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac', '-f', 'mov', input])
+  writeFileSync(`${input}.json`, '{}')
+  const v = await prisma.video.create({ data: { originalName: 'REEMPLAZO.MOV', uploadId } })
+  await procesar(v.id)
+  const { listo, key, vdir } = await abrir(priv, v.id)
+  const thumbAntes = readFileSync(path.join(vdir, 'thumb.jpg.enc'))
+  const pesoAntes = readdirSync(vdir).filter((f) => f.startsWith('seg_') || f === 'init.mp4.enc').reduce((s, f) => s + readFileSync(path.join(vdir, f)).length, 0)
+  const clave = c.b64u(await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse(listo.keyWrap)))
+  const e = await prisma.exportacion.create({ data: { videoId: v.id, clave, duracion: 8, alto: 480 } })
+  await cicloExportacion()
+  assert.equal((await prisma.exportacion.findUniqueOrThrow({ where: { id: e.id } })).status, 'lista')
+
+  const nuevo = await reemplazarOriginal(e)
+  assert.ok(nuevo.size > 0 && nuevo.size < pesoAntes, `más liviano: ${nuevo.size} < ${pesoAntes}`)
+  assert.ok(nuevo.readyAt > listo.readyAt, 'readyAt cambia (marca para la caché del navegador)')
+  assert.equal(await prisma.exportacion.count({ where: { id: e.id } }), 0)
+  assert.ok(!existsSync(exportDir(v.id, e.id)) && !existsSync(path.join(vdir, '.original-reemplazado')))
+  const segs = readdirSync(vdir).filter((f) => f.startsWith('seg_'))
+  assert.equal(nuevo.segments, segs.length)
+  assert.deepEqual(readFileSync(path.join(vdir, 'thumb.jpg.enc')), thumbAntes, 'la miniatura se conserva')
+  assert.ok(existsSync(path.join(vdir, 'key.json')))
+  const mp4 = await rearmar(key, vdir, 'reemplazado.mp4')
+  assert.equal(dimensiones(mp4), 'h264,854,480')
+  const d = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).toString())
+  assert.ok(Math.abs(d - 8) < 0.6, `duración ${d}`)
+})
+
+test('captura PNG grande (sin EXIF): se procesa; si el worker se cayó justo después, se marca lista sin reprocesar', async () => {
+  const priv = await nuevaBoveda()
+  const uploadId = 'up-captura'
+  const input = path.join(paths.subidas, uploadId)
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'cellauto=s=1170x2532:rule=110,format=rgb24,noise=alls=60:allf=t', '-frames:v', '1', '-f', 'image2', '-c:v', 'png', input])
+  writeFileSync(`${input}.json`, '{}')
+  const v = await prisma.video.create({ data: { originalName: 'pegado-2026-10-23_23-20-00.png', mime: 'image/png', uploadId } })
+  await procesar(v.id)
+  const { listo, meta } = await abrir(priv, v.id)
+  assert.equal(listo.status, 'listo')
+  assert.equal(meta.kind, 'imagen')
+  assert.deepEqual([meta.width, meta.height], [1170, 2532])
+
+  // El worker se cayó después de guardar: al reintentar ya no está la subida, pero sí el resultado.
+  await prisma.video.update({ where: { id: v.id }, data: { status: 'procesando' } })
+  await procesar(v.id)
+  const otra = await prisma.video.findUniqueOrThrow({ where: { id: v.id } })
+  assert.equal(otra.status, 'listo')
+  assert.equal(otra.meta, listo.meta, 'no se reprocesa')
+
+  // Sin resultado ni subida: error que no se reintenta.
+  const perdido = await prisma.video.create({ data: { originalName: 'x.png', uploadId: null } })
+  await assert.rejects(procesar(perdido.id), /No se encontró el archivo subido/)
+})
+
+test('un trabajo que tumbó el worker varias veces se marca con error y la cola sigue', async () => {
+  const { ciclo } = await import('../worker.ts')
+  const v = await prisma.video.create({ data: { originalName: 'tumba.png', uploadId: 'no-existe', jobs: { create: { type: 'procesar', attempts: 3 } } } })
+  assert.equal(await ciclo(), true)
+  const job = await prisma.job.findFirstOrThrow({ where: { videoId: v.id } })
+  assert.equal(job.status, 'error')
+  assert.equal((await prisma.video.findUniqueOrThrow({ where: { id: v.id } })).status, 'error')
+})

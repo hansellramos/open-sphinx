@@ -18,6 +18,14 @@ export async function procesar(videoId: string) {
   const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId } })
   const vault = await prisma.vault.findUnique({ where: { id: 1 } })
   if (!vault) throw new Error('La bóveda no está creada')
+  if (!video.uploadId) {
+    // Ya se había procesado (p. ej. el worker se cayó justo después de guardar): solo queda marcarlo listo.
+    if (video.meta && video.keyWrap) {
+      await prisma.video.update({ where: { id: video.id }, data: { status: 'listo', error: null } })
+      return
+    }
+    throw new Error('No se encontró el archivo subido')
+  }
   const input = path.join(paths.subidas, video.uploadId ?? '')
   const work = path.join(paths.tmp, video.id)
   const destinoTmp = path.join(paths.videos, `.${video.id}.parcial`)
@@ -137,10 +145,19 @@ async function tomarTrabajo() {
   return count ? { ...job, attempts: job.attempts + 1 } : null
 }
 
-async function ciclo() {
+export async function ciclo() {
   const job = await tomarTrabajo()
   if (!job) return false
   const t0 = Date.now()
+  // Si el proceso se cae a mitad (no alcanza a anotar el error), el trabajo vuelve a "pendiente" al arrancar:
+  // sin este tope, un archivo que tumba el worker lo dejaría reiniciándose para siempre y la cola no avanzaría.
+  if (job.attempts > MAX_INTENTOS) {
+    const error = 'El procesamiento se interrumpió varias veces'
+    await prisma.job.update({ where: { id: job.id }, data: { status: 'error', error, finishedAt: new Date() } })
+    await prisma.video.update({ where: { id: job.videoId }, data: { status: 'error', error } }).catch(() => {})
+    console.error(`[worker] trabajo ${job.id}: ${error}`)
+    return true
+  }
   console.log(`[worker] trabajo ${job.id}: ${job.type} ${job.videoId} (intento ${job.attempts})`)
   await prisma.video.update({ where: { id: job.videoId }, data: { status: 'procesando' } }).catch(() => {})
   try {
@@ -149,7 +166,7 @@ async function ciclo() {
     console.log(`[worker] trabajo ${job.id} listo en ${((Date.now() - t0) / 1000).toFixed(1)} s`)
   } catch (e) {
     console.error(`[worker] trabajo ${job.id} falló: ${e.message}`)
-    const reintentar = job.attempts < MAX_INTENTOS && !/no soportado|no tiene video/.test(e.message)
+    const reintentar = job.attempts < MAX_INTENTOS && !/no soportado|no tiene video|no se encontró el archivo subido/i.test(e.message)
     await prisma.job.update({ where: { id: job.id }, data: { status: reintentar ? 'pendiente' : 'error', error: e.message, finishedAt: new Date() } })
     if (!reintentar) await prisma.video.update({ where: { id: job.videoId }, data: { status: 'error', error: e.message } }).catch(() => {})
     else await prisma.video.update({ where: { id: job.videoId }, data: { status: 'en_cola' } }).catch(() => {})

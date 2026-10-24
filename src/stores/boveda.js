@@ -247,8 +247,12 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   // ---------- originales (fotos y archivos, en partes) ----------
 
-  async function bajar(v, nombre, base = `/api/videos/${v.id}/archivo`) {
-    const res = await fetch(`${base}/${nombre}`, { credentials: 'include' })
+  // ?r=: si el video se reemplazó por una exportación, los fragmentos se llaman igual pero son otros; con la
+  // marca de readyAt el navegador no usa los viejos de su caché.
+  const marca = (v) => `r=${v.readyAt ? Date.parse(v.readyAt) : 0}`
+  async function bajar(v, nombre, base = null) {
+    const url = base ? `${base}/${nombre}` : `/api/videos/${v.id}/archivo/${nombre}?${marca(v)}`
+    const res = await fetch(url, { credentials: 'include' })
     if (!res.ok) throw new Error(res.status === 401 ? 'Sesión expirada' : 'No se pudo bajar el archivo')
     return res.arrayBuffer()
   }
@@ -338,7 +342,7 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
-    huellas, secuencia, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
+    huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     favorito, renombrar, borrar, thumbUrl, publicKey: () => publicKey,
   }
 })

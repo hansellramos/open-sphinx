@@ -9,7 +9,7 @@ import { useToastStore } from '@/stores/toast'
 import { useBovedaStore } from '@/stores/boveda'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import { tamano } from '@/lib/formato'
+import { duracion, tamano } from '@/lib/formato'
 
 const router = useRouter()
 const subidas = useSubidasStore()
@@ -140,7 +140,7 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
           <RouterLink v-if="it.igual?.id" :to="`/ver/${it.igual.id}`">{{ it.igual.title }}</RouterLink>
           <span v-else>{{ it.igual?.title }} (en esta misma subida)</span>
         </template>
-        <template v-else>{{ { revisando: `Revisando si ya está… ${it.progreso}%`, subiendo: `${it.progreso}%`, listo: 'Subido · en cola para cifrar', error: it.error }[it.estado] ?? 'Esperando' }}</template>
+        <template v-else>{{ { revisando: `Revisando si ya está… ${it.progreso}%`, subiendo: `${it.progreso}%${it.velocidad ? ` · ${tamano(it.velocidad)}/s${it.restante != null ? ` · faltan ${duracion(it.restante)}` : ''}` : ''}`, listo: 'Subido · en cola para cifrar', error: it.error }[it.estado] ?? 'Esperando' }}</template>
       </div>
       <!-- Fecha y etiquetas de este archivo: se pueden cambiar sin esperar a que termine -->
       <div v-if="it.estado !== 'duplicado'" class="d-flex flex-wrap align-items-center gap-2 mt-2 small">

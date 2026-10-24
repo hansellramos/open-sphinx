@@ -94,11 +94,13 @@ const compartirEste = () => compartir(item.value, tipo.value === 'imagen' ? arch
 
 const etiquetaFecha = computed(() => (tipo.value === 'video' ? 'Grabado' : tipo.value === 'imagen' ? 'Tomada' : 'Fecha'))
 
-function loaderDescifrador(key) {
+function loaderDescifrador(key, sufijo = '') {
   const Base = Hls.DefaultConfig.loader
   return class extends Base {
     load(context, config, callbacks) {
-      if (context.url.endsWith('.m3u8')) return super.load(context, config, callbacks)
+      const lista = context.url.split('?')[0].endsWith('.m3u8')
+      if (sufijo && !context.url.includes('?')) context.url += `?${sufijo}`
+      if (lista) return super.load(context, config, callbacks)
       const onSuccess = callbacks.onSuccess
       super.load(context, config, {
         ...callbacks,
@@ -160,7 +162,7 @@ async function reproducir() {
   await nextTick() // el <video> aparece cuando ya se sabe el tipo
   hls?.destroy()
   error.value = ''
-  hls = new Hls({ loader: loaderDescifrador(key), maxBufferLength: 30, maxMaxBufferLength: 60 })
+  hls = new Hls({ loader: loaderDescifrador(key, viendoExp.value ? '' : boveda.marca(item.value)), maxBufferLength: 30, maxMaxBufferLength: 60 })
   hls.on(Hls.Events.ERROR, (_, d) => {
     if (d.fatal) error.value = `Error de reproducción: ${d.details}`
   })
@@ -180,6 +182,27 @@ const borrarExport = accion(async (e) => {
   if (viendo.value === e.id) await ver(null)
   toast.ok('Exportación borrada')
 })
+// Reemplazar el original por una exportación (más liviana): el original se borra para siempre.
+const reemplazando = ref(null) // exportación a confirmar
+const reemplazarOriginal = accion(async () => {
+  const e = reemplazando.value
+  const v = item.value
+  await exportados.reemplazar(e)
+  reemplazando.value = null
+  // Medidas y códec nuevos (mismo cálculo que la NAS: lado corto = alto pedido, pares).
+  const corto = Math.min(m.value.width, m.value.height)
+  const k = e.alto && e.alto < corto ? e.alto / corto : 1
+  const par = (x) => 2 * Math.round(x / 2)
+  await boveda.cargar(true) // trae el tamaño y la marca nuevos
+  await boveda.guardarMeta(boveda.items.find((x) => x.id === v.id), {
+    width: par(m.value.width * k), height: par(m.value.height * k), videoCodec: 'h264',
+    reemplazado: { alto: e.alto, filtro: e.filtro, fecha: new Date().toISOString(), antes: v.size },
+  })
+  viendo.value = null
+  await reproducir()
+  toast.ok(`Listo: ahora ocupa ${tamano(item.value.size)} (antes ${tamano(v.size)})`)
+})
+
 const ver = accion(async (id) => {
   viendo.value = id
   await reproducir()
@@ -330,6 +353,7 @@ onBeforeUnmount(() => {
             <CButton color="secondary" variant="outline" size="sm" :disabled="compartiendo !== null" :title="`Compartir ${etiquetaExport(e)}`" @click="compartirE(e)">
               <CIcon icon="cil-share-boxed" class="me-1" />{{ compartiendo === e.id && progresoExp !== null ? `${progresoExp}%` : 'Compartir' }}
             </CButton>
+            <CButton color="secondary" variant="outline" size="sm" title="Reemplazar el original por esta versión" @click="reemplazando = e"><CIcon icon="cil-swap-horizontal" class="me-1" />Usar como original</CButton>
             <CButton color="danger" variant="ghost" size="sm" :title="`Borrar ${etiquetaExport(e)}`" @click="borrarExport(e)"><CIcon icon="cil-trash" /></CButton>
           </div>
           <CButton v-else-if="e.status === 'error'" color="danger" variant="ghost" size="sm" class="py-0" @click="borrarExport(e)">Quitar</CButton>
@@ -360,6 +384,19 @@ onBeforeUnmount(() => {
     <CModalFooter>
       <CButton color="secondary" variant="ghost" @click="exportando = null">Cancelar</CButton>
       <CButton color="primary" :disabled="!exportando || (exportando.alto === null && exportando.filtro === null)" @click="pedirExport">Exportar</CButton>
+    </CModalFooter>
+  </CModal>
+  <CModal :visible="!!reemplazando" alignment="center" @close="reemplazando = null">
+    <CModalHeader><CModalTitle>¿Usar como original?</CModalTitle></CModalHeader>
+    <CModalBody v-if="reemplazando">
+      El video pasa a ser la versión <strong>{{ etiquetaExport(reemplazando) }}</strong> ({{ tamano(reemplazando.size) }} en vez de {{ tamano(item.size) }}).
+      <strong>El original se borra para siempre</strong> y no se puede recuperar.
+      <div v-if="reemplazando.filtro" class="text-danger mt-2">Tiene filtro: el video quedará con el filtro puesto.</div>
+      <div class="small text-body-secondary mt-2">Fecha, ubicación, etiquetas y miniatura se conservan.</div>
+    </CModalBody>
+    <CModalFooter>
+      <CButton color="secondary" variant="ghost" @click="reemplazando = null">Cancelar</CButton>
+      <CButton color="danger" @click="reemplazarOriginal">Reemplazar</CButton>
     </CModalFooter>
   </CModal>
   <VisorCompleto v-if="visor" :ids="idsVisor" :inicial="item.id" @cerrar="cerrarVisor" />

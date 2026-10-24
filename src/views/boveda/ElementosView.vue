@@ -20,6 +20,9 @@ const q = ref('')
 const desde = ref('')
 const hasta = ref('')
 const conUbicacion = ref(false)
+const etqFiltro = ref([]) // ids de etiquetas elegidas en Filtros
+const etqModo = ref('todas') // todas | alguna
+const alternarEtq = (id) => (etqFiltro.value = etqFiltro.value.includes(id) ? etqFiltro.value.filter((x) => x !== id) : [...etqFiltro.value, id])
 const orden = ref('tomado-desc')
 const verFiltros = ref(false)
 const clase = ref('todo') // en la galería: todo | imagen | video
@@ -71,6 +74,7 @@ const filtrados = computed(() => {
       (!d || f >= d) &&
       (!h || f <= h) &&
       (!conUbicacion.value || loc) &&
+      (!etqFiltro.value.length || etqFiltro.value[etqModo.value === 'todas' ? 'every' : 'some']((id) => v.m.tags?.includes(id))) &&
       (!zona.value || (loc && loc.lat >= zona.value.s && loc.lat <= zona.value.n && loc.lon >= zona.value.w && loc.lon <= zona.value.e))
     )
   })
@@ -96,11 +100,12 @@ const grupos = computed(() => {
   }
   return out
 })
-const hayFiltros = computed(() => !!(q.value || desde.value || hasta.value || conUbicacion.value || zona.value))
+const hayFiltros = computed(() => !!(q.value || desde.value || hasta.value || conUbicacion.value || zona.value || etqFiltro.value.length))
 const plural = (n) => `${n} ${n === 1 ? 'elemento' : 'elementos'}`
 function limpiarFiltros() {
   q.value = desde.value = hasta.value = ''
   conUbicacion.value = false
+  etqFiltro.value = []
   if (zona.value) router.replace({ query: {} })
 }
 
@@ -159,6 +164,20 @@ watch(() => route.fullPath, () => (q.value = ''))
         Zona del mapa <CCloseButton white style="width: .5rem; height: .5rem" @click="router.replace({ query: {} })" />
       </CBadge>
       <CButton v-if="hayFiltros" color="link" size="sm" class="mb-1" @click="limpiarFiltros">Quitar filtros</CButton>
+      <div v-if="boveda.etiquetas.length" class="w-100">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="small">Etiquetas</span>
+          <CButtonGroup v-if="etqFiltro.length > 1" size="sm" role="group" aria-label="Cómo combinar las etiquetas">
+            <CButton color="secondary" :variant="etqModo === 'todas' ? undefined : 'outline'" class="py-0" @click="etqModo = 'todas'">Todas</CButton>
+            <CButton color="secondary" :variant="etqModo === 'alguna' ? undefined : 'outline'" class="py-0" @click="etqModo = 'alguna'">Alguna</CButton>
+          </CButtonGroup>
+        </div>
+        <div class="d-flex flex-wrap gap-1">
+          <button v-for="t in boveda.etiquetas" :key="t.id" type="button" class="btn btn-sm py-0 px-2 rounded-pill" :class="etqFiltro.includes(t.id) ? `btn-${t.color}` : `btn-outline-${t.color}`" :aria-pressed="etqFiltro.includes(t.id)" @click="alternarEtq(t.id)">
+            {{ t.name }} <span class="opacity-75">{{ t.total }}</span>
+          </button>
+        </div>
+      </div>
       <CButton color="link" size="sm" class="mb-1 ms-auto" @click="router.push(zona ? `/mapa?zona=${route.query.zona}` : '/mapa')"><CIcon icon="cil-map" class="me-1" />Elegir zona en el mapa</CButton>
     </CCardBody>
   </CCard>

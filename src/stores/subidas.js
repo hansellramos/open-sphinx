@@ -90,10 +90,14 @@ export const useSubidasStore = defineStore('subidas', () => {
       retryDelays: [0, 1000, 3000, 5000, 10000, 30000],
       removeFingerprintOnSuccess: true,
       metadata: { filename: it.nombre, filetype: it.file.type || '', ...(extra && { extra }) },
-      onProgress: (sent, total) => (it.progreso = Math.round((sent / total) * 1000) / 10),
+      onProgress: (sent, total) => {
+        it.progreso = Math.round((sent / total) * 1000) / 10
+        medir(it, sent, total)
+      },
       onSuccess: () => {
         it.estado = 'listo'
         it.progreso = 100
+        it.velocidad = it.restante = null
         it.file = null
         boveda.cargar(true).catch(() => {}) // aparece "En cola" y empieza el sondeo
         siguiente()
@@ -105,6 +109,7 @@ export const useSubidasStore = defineStore('subidas', () => {
       },
     })
     it.upload = up
+    it.medida = null
     // Si esta misma subida quedó a medias (se cerró la pestaña), sigue donde iba.
     up.findPreviousUploads().then((prev) => {
       if (prev.length) up.resumeFromPreviousUpload(prev[0])
@@ -131,6 +136,21 @@ export const useSubidasStore = defineStore('subidas', () => {
       useBovedaStore()
         .ajustarPorHuella(it.sha, { tags: it.tags, takenAt: deLocal(it.fecha), manual: it.manual, ...(it.titulo && { title: it.titulo }) })
         .catch((e) => console.warn('No se pudo guardar el cambio', e))
+  }
+
+  // Velocidad: promedio móvil de los últimos segundos (tus avisa cada pedazo enviado al socket, que puede
+  // llegar a saltos). También lo que falta, en segundos.
+  function medir(it, sent, total) {
+    const ahora = performance.now()
+    const m = (it.medida ??= { t: ahora, b: sent, vel: null })
+    const dt = (ahora - m.t) / 1000
+    if (dt < 1) return
+    const inst = (sent - m.b) / dt
+    m.vel = m.vel == null ? inst : m.vel * 0.7 + inst * 0.3
+    m.t = ahora
+    m.b = sent
+    it.velocidad = m.vel
+    it.restante = m.vel > 0 ? (total - sent) / m.vel : null
   }
 
   function reintentar(it) {

@@ -128,8 +128,20 @@ function fechaExif(d?: string, zona?: string) {
   return parseFecha(d.replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T') + (zona ?? ''))
 }
 
+// exifr con una ruta abre el archivo y, con algunos PNG, no lo cierra: desde Node 26.12 eso tumba el proceso
+// ("FileHandle closed during garbage collection"). Por eso se le pasa el inicio del archivo ya leído (el EXIF va
+// al principio; en PNG puede ir más adelante, por eso hasta 16 MB).
+const MAX_EXIF = 16 * 1024 * 1024
 async function exif(file: string) {
-  const e = await exifr.parse(file, { tiff: true, exif: true, gps: true, reviveValues: false, translateValues: false }).catch(() => null)
+  const fh = await open(file, 'r')
+  let buf: Buffer
+  try {
+    buf = Buffer.alloc(Math.min((await fh.stat()).size, MAX_EXIF))
+    await fh.read(buf, 0, buf.length, 0)
+  } finally {
+    await fh.close()
+  }
+  const e = await exifr.parse(buf, { tiff: true, exif: true, gps: true, reviveValues: false, translateValues: false }).catch(() => null)
   if (!e) return { takenAt: null, location: null, device: null, orientation: 1 }
   const lat = e.latitude, lon = e.longitude
   const okGps = Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180

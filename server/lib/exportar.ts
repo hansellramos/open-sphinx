@@ -3,7 +3,7 @@
 // fila y se borra al tomarlo). Los fragmentos se descifran en memoria y van por stdin a ffmpeg; lo que sale se
 // cifra con la misma clave en videos/<video>/exportados/<id>/. Vence a los 7 días (el worker la borra).
 import { spawn } from 'node:child_process'
-import { readFile, readdir, rename, rm, mkdir, writeFile, copyFile } from 'node:fs/promises'
+import { readFile, readdir, rename, rm, mkdir, writeFile, copyFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from '../db.ts'
 import { paths, videoDir } from './paths.ts'
@@ -213,6 +213,45 @@ export async function hacerExportacion(e: { id: string; videoId: string; clave: 
 export async function borrarExportacion(e: { id: string; videoId: string }) {
   await rm(exportDir(e.videoId, e.id), { recursive: true, force: true })
   await prisma.exportacion.delete({ where: { id: e.id } }).catch(() => {})
+}
+
+// Reemplaza el video original por una exportación lista (para ahorrar espacio). Ya está cifrada con la misma
+// clave, así que solo se mueven archivos: el original va a una carpeta aparte, entra la exportación y, si todo
+// salió bien, se borra el original (si algo falla, se devuelve). La miniatura y key.json se quedan.
+// No tiene vuelta atrás. La exportación deja de existir como tal (ya no vence).
+const ES_VIDEO = (f: string) => f === 'index.m3u8' || f === 'init.mp4.enc' || /^seg_\d{5}\.m4s\.enc$/.test(f)
+export async function reemplazarOriginal(e: { id: string; videoId: string }) {
+  const dir = videoDir(e.videoId)
+  const origen = exportDir(e.videoId, e.id)
+  const nuevos = (await readdir(origen)).filter(ES_VIDEO)
+  if (!nuevos.includes('index.m3u8') || !nuevos.includes('init.mp4.enc')) throw new Error('La exportación está incompleta')
+  const viejo = path.join(dir, '.original-reemplazado')
+  await rm(viejo, { recursive: true, force: true })
+  await mkdir(viejo)
+  const actuales = (await readdir(dir)).filter(ES_VIDEO)
+  const movidos: string[] = []
+  try {
+    for (const f of actuales) await rename(path.join(dir, f), path.join(viejo, f))
+    for (const f of nuevos) {
+      await rename(path.join(origen, f), path.join(dir, f))
+      movidos.push(f)
+    }
+  } catch (err) {
+    for (const f of movidos) await rename(path.join(dir, f), path.join(origen, f)).catch(() => {})
+    for (const f of await readdir(viejo)) await rename(path.join(viejo, f), path.join(dir, f)).catch(() => {})
+    await rm(viejo, { recursive: true, force: true })
+    throw err
+  }
+  let size = 0
+  for (const f of nuevos) if (f !== 'index.m3u8') size += (await stat(path.join(dir, f))).size
+  const v = await prisma.video.update({
+    where: { id: e.videoId },
+    // readyAt cambia: el navegador lo usa para no servirse fragmentos viejos de su caché.
+    data: { size, segments: nuevos.filter((f) => f.startsWith('seg_')).length, readyAt: new Date() },
+  })
+  await rm(viejo, { recursive: true, force: true })
+  await borrarExportacion(e)
+  return v
 }
 
 // Borra las vencidas. Devuelve cuántas.

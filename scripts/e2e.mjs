@@ -303,6 +303,14 @@ try {
   await page.getByText('IMG-20190305-WA0001').first().waitFor() // el nombre, en los detalles
   paso('WhatsApp: fecha del nombre; fecha y etiqueta cambiadas durante la subida y fecha cambiada en el detalle')
   await page.goto(`${base}/#/galeria`)
+  await page.getByRole('button', { name: 'Filtros' }).click()
+  await page.getByRole('button', { name: /^WhatsApp/ }).click()
+  await page.getByRole('button', { name: /^Familia/ }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.video-card').length === 1)
+  await page.getByRole('button', { name: 'Alguna', exact: true }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.video-card').length > 1)
+  await page.getByRole('button', { name: 'Quitar filtros' }).click()
+  paso('filtrar por varias etiquetas: todas o alguna')
 
   await page.getByRole('button', { name: /Bloquear/ }).click()
   await page.waitForURL(/#\/entrar/)
@@ -318,6 +326,28 @@ try {
   await page.waitForURL(/#\/galeria/)
   await page.locator('.thumb img').first().waitFor()
   paso('desbloquea con la passkey (PRF)')
+
+  // Usar una exportación (480p, sin filtro) como el video: más liviano, se sigue viendo y compartiendo bien
+  // (aunque el navegador tenga en caché los fragmentos viejos con el mismo nombre).
+  await page.goto(`${base}/#/galeria`)
+  await page.locator('.video-card', { hasText: '2021' }).click()
+  await page.locator('video.player').waitFor()
+  await page.waitForFunction(() => document.querySelector('video.player')?.readyState >= 2, null, { timeout: 30000 })
+  const pesoAntes = await page.locator('.col-md-5 .text-body-secondary').last().innerText()
+  await page.getByRole('button', { name: 'Nueva…' }).click()
+  await page.getByLabel('480p').check()
+  await page.getByRole('button', { name: 'Exportar', exact: true }).click()
+  await page.getByRole('button', { name: 'Usar como original' }).click({ timeout: 180000 })
+  await page.getByRole('button', { name: 'Reemplazar', exact: true }).click()
+  await page.getByText(/Listo: ahora ocupa/).waitFor({ timeout: 30000 })
+  await page.getByText('854×480 · H264').waitFor()
+  if ((await page.locator('.col-md-5 .text-body-secondary').last().innerText()) === pesoAntes) throw new Error('el tamaño no cambió')
+  await page.waitForFunction(() => document.querySelector('video.player')?.readyState >= 2, null, { timeout: 30000 })
+  await page.evaluate(() => Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true }))
+  const [mp4r] = await Promise.all([page.waitForEvent('download'), page.getByTitle('Compartir', { exact: true }).click()])
+  const infoR = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height', '-of', 'csv=p=0', await mp4r.path()]).toString().trim()
+  if (infoR !== 'h264,854,480') throw new Error(`reemplazado: ${infoR}`)
+  paso('usar una exportación como original: más liviano, se reproduce y comparte la versión nueva')
 
   // Migración de un video del MVP (título y etiqueta sin cifrar en la base).
   const Database = (await import('better-sqlite3')).default
