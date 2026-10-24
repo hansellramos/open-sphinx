@@ -9,4 +9,7 @@ cd "$(dirname "$0")/.."
 docker build -t boveda:latest .
 docker save boveda:latest | gzip -1 | $SSH 'gunzip | docker load'
 $SSH 'cat > /volume2/docker/boveda/docker-compose.yml' < docker-compose.yml
-$SSH 'cd /volume2/docker/boveda && docker compose up -d && docker image prune -f --filter "dangling=true" >/dev/null && sleep 10 && docker compose ps --format "{{.Name}}: {{.Status}}"'
+# El worker se detiene antes de recrear la app: las migraciones necesitan la base para ellas solas. Lo que estaba
+# haciendo sigue solo al volver (trabajos a la cola; exportaciones desde el último fragmento, la clave sigue en
+# la RAM que mantiene boveda_ram).
+$SSH 'cd /volume2/docker/boveda && docker compose stop worker && docker compose up -d && docker image prune -f --filter "dangling=true" >/dev/null && sleep 10 && docker compose ps --format "{{.Name}}: {{.Status}}"'
