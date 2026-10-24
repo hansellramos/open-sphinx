@@ -12,6 +12,7 @@ import { prisma } from '../db.ts'
 import { paths, videoDir } from './paths.ts'
 import { HLS, cifradorHLS, conPrioridadBaja, entradasHLS, listaVOD } from './media.ts'
 import { decryptBlob, fromB64u, importFileKey } from '../../shared/crypto.js'
+import { desplazar, escalas } from './mp4.ts'
 
 export const VIDA_MS = 7 * 24 * 3600 * 1000
 export const ALTOS = [720, 480]
@@ -198,8 +199,17 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
     ultimo = Date.now()
     await prisma.exportacion.update({ where: { id: e.id }, data: { progreso: Math.min(99, Math.max(0, Math.round((t / e.duracion) * 100))) } }).catch(() => {})
   }
+  // Al reanudar, ffmpeg empieza los tiempos otra vez en 0: se corrigen fragmento por fragmento (lib/mp4.ts).
+  let ajustar: ((plano: Buffer) => void) | undefined
+  if (hecho) {
+    const ts = escalas(new Uint8Array(await decryptBlob(key, await readFile(path.join(parcial, 'init.mp4.enc')))))
+    ajustar = (plano) => {
+      if (!desplazar(plano, hecho, ts)) throw new Error('No se pudieron corregir los tiempos del fragmento')
+    }
+  }
   const c = cifradorHLS(work, parcial, key, {
     conInit: estado.segs.length === 0,
+    ajustar,
     alCifrar: async (s) => {
       estado.segs.push(s)
       await writeFile(archivoEstado, JSON.stringify(estado))
@@ -221,7 +231,6 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
         '-map', '0:v:0', '-map', '0:a:0?', '-filter_threads', '1', '-vf', cadena(w, h, e.alto, filtro),
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-threads', '2', '-force_key_frames', 'expr:gte(t,n_forced*2)',
         '-c:a', 'aac', '-b:a', '96k', '-ac', '2',
-        ...(hecho ? ['-output_ts_offset', hecho.toFixed(3)] : []),
         ...HLS, '-start_number', String(estado.segs.length), '-hls_segment_filename', `${work}/seg_%05d.m4s`, `${work}/index.m3u8`,
       ],
       fragmentos(k),

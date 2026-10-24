@@ -448,6 +448,12 @@ test('exportar se reanuda desde el último fragmento cifrado', async () => {
   const mp4 = await rearmar(key, dirE, 'reanudada.mp4')
   const d = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).toString())
   assert.ok(Math.abs(d - 20) < 0.6, `duración ${d}`)
-  // Se decodifica entera sin errores (los tiempos siguen donde iban).
+  // Se decodifica entera sin errores y los tiempos siguen donde iban (no vuelven a 0 al reanudar).
   execFileSync('ffmpeg', ['-v', 'error', '-xerror', '-i', mp4, '-f', 'null', '-'])
+  for (const pista of ['v', 'a']) {
+    const pts = execFileSync('ffprobe', ['-v', 'error', '-select_streams', pista, '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', mp4]).toString().trim().split('\n').map(Number).sort((a, b) => a - b)
+    const salto = Math.max(...pts.slice(1).map((t, i) => t - pts[i]))
+    assert.ok(salto < 0.5, `${pista}: hueco de ${salto} s`)
+    assert.ok(Math.abs(pts.at(-1) - 20) < 0.6, `${pista}: termina en ${pts.at(-1)} s`)
+  }
 })

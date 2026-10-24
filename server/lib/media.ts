@@ -235,7 +235,13 @@ export function listaVOD(segs: { nombre: string; dur: number }[]) {
 // Mientras ffmpeg escribe HLS en `dir` (en RAM), cifra cada fragmento apenas aparece en la lista (ya está
 // completo) y borra el que quedó en claro; así en RAM hay uno o dos a la vez. init.mp4 se cifra con el primero
 // (si `conInit`). `alCifrar` se llama por cada uno, en orden. `terminar()` hace la última pasada (al salir ffmpeg).
-export function cifradorHLS(dir: string, destino: string, key: CryptoKey, { conInit = true, alCifrar }: { conInit?: boolean; alCifrar?: (s: { nombre: string; dur: number; size: number }) => Promise<void> | void } = {}) {
+// `ajustar` puede cambiar cada fragmento en claro antes de cifrarlo (p. ej. corregir sus tiempos).
+export function cifradorHLS(
+  dir: string,
+  destino: string,
+  key: CryptoKey,
+  { conInit = true, alCifrar, ajustar }: { conInit?: boolean; alCifrar?: (s: { nombre: string; dur: number; size: number }) => Promise<void> | void; ajustar?: (plano: Buffer) => void } = {},
+) {
   const hechos = new Set<string>()
   let initHecho = !conInit
   let cola = Promise.resolve()
@@ -257,6 +263,7 @@ export function cifradorHLS(dir: string, destino: string, key: CryptoKey, { conI
           if (hechos.has(e.nombre)) continue
           const f = path.join(dir, e.nombre)
           const plano = await readFile(f)
+          ajustar?.(plano)
           const cifrado = await encryptBlob(key, plano)
           await writeFile(path.join(destino, `${e.nombre}.enc`), cifrado)
           await rm(f, { force: true })
