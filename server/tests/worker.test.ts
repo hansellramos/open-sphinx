@@ -321,6 +321,51 @@ test('usar una exportación como original: reemplaza los fragmentos, conserva la
   assert.ok(Math.abs(d - 8) < 0.6, `duración ${d}`)
 })
 
+test('reducir al subir: crea la versión de 540p en la fila y al terminar reemplaza al original (si pesa menos)', async () => {
+  const priv = await nuevaBoveda()
+  const { cicloExportacion, exportDir } = await import('../lib/exportar.ts')
+  const subir = async (uploadId, size) => {
+    execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440',
+      '-t', '8', '-c:v', 'libx264', '-crf', '15', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac', '-f', 'mov', path.join(paths.subidas, uploadId)])
+    size ??= readFileSync(path.join(paths.subidas, uploadId)).length
+    await cifrarSubida(uploadId)
+    const v = await prisma.video.create({ data: { originalName: `${uploadId}.MOV`, uploadId, size, reducir: 540 } })
+    await procesar(v.id)
+    return v
+  }
+
+  const v = await subir('up-reducir')
+  const { listo, vdir } = await abrir(priv, v.id)
+  assert.equal(listo.reducir, null)
+  const e = await prisma.exportacion.findFirstOrThrow({ where: { videoId: v.id } })
+  assert.equal(e.alto, 540)
+  assert.ok(e.reemplazar && e.status === 'en_cola' && e.clave === null, 'en fila, sin la clave en la base')
+  assert.ok(existsSync(path.join(paths.claves, e.id)), 'la clave queda en RAM para el worker')
+  await cicloExportacion()
+  assert.equal(await prisma.exportacion.count({ where: { id: e.id } }), 0, 'la exportación pasa a ser el video')
+  assert.ok(!existsSync(path.join(paths.claves, e.id)) && !existsSync(exportDir(v.id, e.id)))
+  const { listo: nuevo, key, meta } = await abrir(priv, v.id)
+  assert.ok(nuevo.size < v.size, `más liviano: ${nuevo.size} < ${v.size}`)
+  assert.equal(`${meta.width}x${meta.height}`, '960x540')
+  assert.equal(meta.videoCodec, 'h264')
+  assert.equal(meta.reemplazado.alto, 540)
+  assert.equal(meta.reemplazado.antes, v.size)
+  assert.equal(meta.originalName, 'up-reducir.MOV', 'el resto de los metadatos se conserva')
+  assert.equal(JSON.parse(readFileSync(path.join(vdir, 'key.json'), 'utf8')).meta, nuevo.meta, 'key.json con los metadatos nuevos')
+  const mp4 = await rearmar(key, vdir, 'reducido.mp4')
+  assert.equal(dimensiones(mp4), 'h264,960,540')
+
+  // Si la versión reducida no pesa menos (aquí: el original "pesa" 1 byte), se queda el original.
+  const v2 = await subir('up-reducir-no', 1)
+  const segsAntes = (await abrir(priv, v2.id)).listo.segments
+  await cicloExportacion()
+  assert.equal(await prisma.exportacion.count({ where: { videoId: v2.id } }), 0)
+  const { listo: igual, meta: m2 } = await abrir(priv, v2.id)
+  assert.equal(igual.segments, segsAntes)
+  assert.equal(`${m2.width}x${m2.height}`, '1280x720')
+  assert.equal(m2.reemplazado, undefined)
+})
+
 test('captura PNG grande (sin EXIF): se procesa; si el worker se cayó justo después, se marca lista sin reprocesar', async () => {
   const priv = await nuevaBoveda()
   const uploadId = 'up-captura'

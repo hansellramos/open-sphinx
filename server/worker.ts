@@ -4,6 +4,7 @@
 // hace falta en claro vive en RAM (paths.tmp) solo mientras se usa. En otra fila, a la vez, hace las
 // exportaciones pedidas (de a una) y borra las vencidas.
 import 'dotenv/config'
+import { randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -12,8 +13,8 @@ import { prisma } from './db.ts'
 import { borrarSubida, paths, videoDir } from './lib/paths.ts'
 import { cifradorHLS, cifrarEnPartes, listaVOD, miniatura, prepararImagen, probe, segmentar, sha256, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
 import { abrirSubida, leerLlave, servir } from './lib/temporal.ts'
-import { encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
-import { cicloExportacion, recuperarExportaciones, vencerExportaciones } from './lib/exportar.ts'
+import { b64u, encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
+import { cicloExportacion, guardarClave, recuperarExportaciones, vencerExportaciones } from './lib/exportar.ts'
 
 const ESPERA_MS = 5_000
 const MAX_INTENTOS = 3
@@ -108,8 +109,10 @@ export async function procesar(videoId: string) {
     // Metadatos (incluido el tipo y la fecha/ubicación/equipo) cifrados con la clave del elemento.
     // sellado: lo que el navegador mandó sellado (etiquetas, fecha); lo aplica el navegador al abrirlo. Se puede
     // cambiar mientras se procesa (PUT /subidas/:id/ajuste), así que se relee y se guarda solo si no cambió.
+    let reducir: number | null = null
     for (;;) {
-      const { extra } = await prisma.video.findUniqueOrThrow({ where: { id: video.id }, select: { extra: true } })
+      const { extra, reducir: r } = await prisma.video.findUniqueOrThrow({ where: { id: video.id }, select: { extra: true, reducir: true } })
+      reducir = r
       const comunes = {
         v: 1, kind: tipo, title: nombre.replace(/\.[^.]+$/, '') || nombre, originalName: nombre, mime: video.mime || null,
         sha256: huella, tags: [], favorite: false, ...(extra && { sellado: JSON.parse(extra) }),
@@ -129,6 +132,7 @@ export async function procesar(videoId: string) {
           originalName: null,
           mime: null,
           extra: null,
+          reducir: null,
           segments: p ? segmentos.length : null,
           keyWrap: JSON.stringify(keyWrap),
           readyAt: new Date(),
@@ -137,6 +141,13 @@ export async function procesar(videoId: string) {
       })
       if (count) break
       await rename(videoDir(video.id), destinoTmp) // cambiaron las etiquetas justo ahora: otra vuelta
+    }
+    // Pidió reducirlo al subir: queda en la fila de exportaciones con la clave en RAM; al terminar reemplaza al original.
+    if (p && reducir && Math.min(p.width, p.height) > reducir) {
+      const id = randomUUID()
+      await guardarClave(id, b64u(fk.raw))
+      await prisma.exportacion.create({ data: { id, videoId: video.id, alto: reducir, filtro: null, duracion: p.duration, reemplazar: true } })
+      console.log(`[worker] ${video.id}: en fila para reducir a ${reducir}p`)
     }
     fk.raw.fill(0)
     await borrarSubida(video.uploadId)

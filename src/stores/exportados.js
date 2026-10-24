@@ -28,7 +28,7 @@ export const useExportadosStore = defineStore('exportados', () => {
     if (pendientes.value) timer = setTimeout(() => cargar().catch(() => programar()), 3000)
   }
 
-  // opciones: { alto: 720 | 480 | null, filtro: 'a' | 'b' | 'c' | null }
+  // opciones: { alto: 720 | 540 | 480 | null, filtro: 'a' | 'b' | 'c' | null }
   async function pedir(v, { alto = null, filtro = null }) {
     const e = await api.post(`/videos/${v.id}/exportar`, { clave: await auth.claveCrudaDe(v), duracion: v.m?.duration ?? null, alto, filtro })
     items.value = [e, ...items.value.filter((x) => x.id !== e.id)]

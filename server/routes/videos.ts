@@ -28,6 +28,7 @@ const tus = new TusServer({
         originalName: name.slice(0, 255),
         mime: upload.metadata?.filetype?.slice(0, 100) || null,
         extra,
+        reducir: reducirValido(upload.metadata?.reducir),
         size: upload.size ?? upload.offset,
         uploadId: upload.id,
         jobs: { create: { type: 'procesar' } },
@@ -37,6 +38,10 @@ const tus = new TusServer({
     return {}
   },
 })
+
+// Lado corto al que reducir un video al subirlo (o null: dejar el original).
+const REDUCIR = [720, 540]
+const reducirValido = (x: unknown) => (REDUCIR.includes(Number(x)) ? Number(x) : null)
 
 // Datos sellados por el navegador con la pública ({k: {epk…}, d}); el servidor no los puede leer.
 function selladoValido(extra?: string | null) {
@@ -56,12 +61,13 @@ const r = Router()
 // Etiquetas/fecha cambiadas después de empezar a subir: se guardan selladas con el elemento (reemplazan a las de
 // la subida) y el worker las mete en los metadatos. Así no se pierden si se recarga la página. 404: la subida
 // todavía no termina (el navegador lo reintenta al terminar) o ya se procesó (el navegador lo aplica él).
+// También «reducir» (opcional; null = dejar el original).
 r.put('/por-subida/:uploadId/ajuste', async (req, res) => {
   const extra = selladoValido(typeof req.body?.extra === 'string' ? req.body.extra : null)
   if (!extra) return res.status(400).json({ error: 'Datos no válidos' })
   const v = await prisma.video.findFirst({ where: { uploadId: req.params.uploadId } })
   if (!v) return res.status(404).json({ error: 'No hay una subida en proceso con ese id' })
-  await prisma.video.update({ where: { id: v.id }, data: { extra } })
+  await prisma.video.update({ where: { id: v.id }, data: { extra, ...('reducir' in (req.body ?? {}) && { reducir: reducirValido(req.body.reducir) }) } })
   res.json({ ok: true })
 })
 

@@ -1,4 +1,4 @@
-// Exportar un video: más pequeño (lado corto 720/480, nunca agrandar) y/o con el filtro "posterizado", a pedido.
+// Exportar un video: más pequeño (lado corto 720/540/480, nunca agrandar) y/o con el filtro "posterizado", a pedido.
 // La NAS no tiene la llave privada: el navegador le presta la clave del video para este trabajo. Vive solo en
 // RAM (paths.claves) y se borra al terminar o fallar. Los fragmentos se descifran en memoria y van por stdin a
 // ffmpeg; cada fragmento que sale se cifra apenas se cierra (en RAM queda uno o dos) y se va guardando en
@@ -11,11 +11,11 @@ import path from 'node:path'
 import { prisma } from '../db.ts'
 import { paths, videoDir } from './paths.ts'
 import { HLS, cifradorHLS, conPrioridadBaja, entradasHLS, listaVOD } from './media.ts'
-import { decryptBlob, fromB64u, importFileKey } from '../../shared/crypto.js'
+import { decryptBlob, decryptJSON, encryptJSON, fromB64u, importFileKey } from '../../shared/crypto.js'
 import { desplazar, escalas, ultimaSecuencia } from './mp4.ts'
 
 export const VIDA_MS = 7 * 24 * 3600 * 1000
-export const ALTOS = [720, 480]
+export const ALTOS = [720, 540, 480]
 export const exportDir = (videoId: string, id: string) => path.join(videoDir(videoId), 'exportados', id)
 // Lo que ve el navegador. (La columna clave ya no se usa: la clave va en RAM.)
 export const exportPublica = ({ clave, ...e }: { clave: string | null; [k: string]: unknown }) => e
@@ -293,6 +293,9 @@ export async function reemplazarOriginal(e: { id: string; videoId: string }) {
   const viejo = path.join(dir, '.original-reemplazado')
   await rm(viejo, { recursive: true, force: true })
   await mkdir(viejo)
+  // Lo hecho a medias de otras exportaciones de este video ya no sirve para reanudar (cambian los fragmentos).
+  for (const o of await prisma.exportacion.findMany({ where: { videoId: e.videoId, id: { not: e.id } } }))
+    await rm(`${exportDir(e.videoId, o.id)}.parcial`, { recursive: true, force: true })
   const actuales = (await readdir(dir)).filter(ES_VIDEO)
   const movidos: string[] = []
   try {
@@ -319,6 +322,37 @@ export async function reemplazarOriginal(e: { id: string; videoId: string }) {
   return v
 }
 
+// Pedida al subir («reducir»): al terminar reemplaza al original, si pesa menos (si no, se descarta). Los metadatos
+// (medidas, códec) se corrigen aquí con la clave prestada, que todavía está en RAM.
+async function reemplazarAlTerminar(e: { id: string; videoId: string; alto: number | null; filtro: string | null }) {
+  const hecha = await prisma.exportacion.findUniqueOrThrow({ where: { id: e.id } })
+  const v = await prisma.video.findUniqueOrThrow({ where: { id: e.videoId } })
+  if (hecha.size >= v.size) {
+    console.log(`[worker] exportación ${e.id}: pesa ${hecha.size} y el original ${v.size}; se deja el original`)
+    await borrarExportacion(e)
+    return
+  }
+  const clave = await leerClave(e.id)
+  if (!clave) throw new Error('Falta la clave (se reinició la NAS): reanúdala')
+  const key = await importFileKey(fromB64u(clave))
+  const antes = v.size
+  await reemplazarOriginal(e)
+  for (let i = 0; i < 5; i++) {
+    const { meta } = await prisma.video.findUniqueOrThrow({ where: { id: e.videoId }, select: { meta: true } })
+    if (!meta) return
+    const m = await decryptJSON(key, meta)
+    const { W, H } = tamanoSalida(m.width, m.height, e.alto)
+    const nueva = await encryptJSON(key, { ...m, width: W, height: H, videoCodec: 'h264', reemplazado: { alto: e.alto, filtro: e.filtro, fecha: new Date().toISOString(), antes } })
+    const { count } = await prisma.video.updateMany({ where: { id: e.videoId, meta }, data: { meta: nueva } })
+    if (!count) continue // el navegador la cambió justo ahora: otra vuelta
+    const kj = path.join(videoDir(e.videoId), 'key.json')
+    const k = JSON.parse(await readFile(kj, 'utf8'))
+    await writeFile(kj, JSON.stringify({ ...k, meta: nueva }))
+    break
+  }
+  console.log(`[worker] exportación ${e.id} reemplazó al original (${antes} → ${hecha.size} bytes)`)
+}
+
 // Borra las vencidas (y las que quedaron con error hace más de 7 días, con lo hecho a medias). Devuelve cuántas.
 export async function vencerExportaciones(ahora = new Date()) {
   const vencidas = await prisma.exportacion.findMany({
@@ -336,6 +370,12 @@ export async function cicloExportacion() {
   console.log(`[worker] exportación ${e.id} del video ${e.videoId} (${e.alto ?? 'original'}${e.filtro ? `, filtro ${e.filtro}` : ''})`)
   try {
     await hacerExportacion(e)
+    // Si reemplazar falla, la exportación queda lista igual (se puede usar como original a mano).
+    if (e.reemplazar)
+      await reemplazarAlTerminar(e).catch(async (err) => {
+        console.error(`[worker] exportación ${e.id}: no se pudo reemplazar el original: ${err.message}`)
+        await prisma.exportacion.update({ where: { id: e.id }, data: { error: `No reemplazó al original: ${String(err.message).slice(0, 200)}` } }).catch(() => {})
+      })
     console.log(`[worker] exportación ${e.id} lista en ${((Date.now() - t0) / 1000).toFixed(1)} s`)
   } catch (err) {
     console.error(`[worker] exportación ${e.id} falló: ${err.message}`)

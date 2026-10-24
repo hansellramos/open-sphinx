@@ -29,6 +29,9 @@ const vertical = path.join(dir, 'vertical.mov')
 execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30', '-t', '8', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '30', `${vertical}.base.mov`])
 execFileSync('ffmpeg', ['-loglevel', 'error', '-display_rotation', '-90', '-i', `${vertical}.base.mov`, '-c', 'copy',
   '-metadata', 'com.apple.quicktime.creationdate=2020-05-01T10:00:00-0500', '-movflags', 'use_metadata_tags', vertical])
+const pesado = path.join(dir, 'PESADO.MOV') // 720p con mucha calidad: para «reducir al subir»
+execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=330', '-t', '10', '-c:v', 'libx264', '-crf', '12',
+  '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-metadata', 'com.apple.quicktime.creationdate=2019-03-03T10:00:00-0500', '-movflags', 'use_metadata_tags', pesado])
 const notas = path.join(dir, 'notas-secretas.txt')
 const textoNotas = 'Contenido confidencial de prueba\n'.repeat(50)
 writeFileSync(notas, textoNotas)
@@ -435,6 +438,29 @@ try {
   const infoR = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height', '-of', 'csv=p=0', await mp4r.path()]).toString().trim()
   if (infoR !== 'h264,854,480') throw new Error(`reemplazado: ${infoR}`)
   paso('usar una exportación como original: más liviano, se reproduce y comparte la versión nueva')
+
+  // Reducir al subir: elegido para lo que se suba (y por archivo); la NAS crea la de 540p y reemplaza al original.
+  await page.goto(`${base}/#/subir`)
+  await page.locator('#subir-reducir').selectOption({ label: 'Reducir a 540p y reemplazar el original' })
+  await page.getByText(/crea la versión de 540p/).waitFor()
+  await page.locator('input[type=file]').setInputFiles([pesado])
+  const tarjeta = page.locator('.card', { hasText: 'PESADO' })
+  if ((await tarjeta.locator('.subir-reducir-item').inputValue()) !== '540') throw new Error('el archivo no tomó «reducir a 540p»')
+  await tarjeta.getByText('Subido · en cola').waitFor({ timeout: 60000 })
+  await page.goto(`${base}/#/galeria`)
+  await page.locator('.video-card', { hasText: '2019' }).click({ timeout: 30000 })
+  for (let i = 0; i < 60 && !(await page.getByText('960×540 · H264').count()); i++) {
+    await page.waitForTimeout(2000)
+    await page.reload()
+    if (/#\/entrar/.test(page.url())) await page.getByRole('button', { name: /Desbloquear con passkey/ }).click()
+  }
+  await page.getByText('960×540 · H264').waitFor({ timeout: 10000 })
+  await page.goto(`${base}/#/exportados`)
+  await page.getByRole('heading', { name: 'Exportaciones' }).waitFor()
+  if (await page.getByText('reemplazará al original').count()) throw new Error('la exportación automática debería desaparecer al reemplazar')
+  await page.goto(`${base}/#/subir`)
+  await page.locator('#subir-reducir').selectOption({ label: 'Dejar el original' })
+  paso('reducir al subir: elegido en Subir, la NAS crea la de 540p y reemplaza al original')
 
   // Migración de un video del MVP (título y etiqueta sin cifrar en la base).
   const Database = (await import('better-sqlite3')).default

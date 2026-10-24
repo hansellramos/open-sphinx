@@ -59,7 +59,7 @@ const exportando = ref(null) // { alto, filtro } con el diálogo abierto
 const compartiendo = ref(null) // id de la exportación que se está preparando para compartir
 // Tamaños que de verdad reducen (nunca agrandar).
 const estimacion = computed(() => (exportando.value && (exportando.value.alto !== null || exportando.value.filtro !== null) ? exportados.estimar(item.value, exportando.value) : null))
-const altosPosibles = computed(() => [720, 480].filter((a) => a < Math.min(m.value?.width ?? 0, m.value?.height ?? 0)))
+const altosPosibles = computed(() => [720, 540, 480].filter((a) => a < Math.min(m.value?.width ?? 0, m.value?.height ?? 0)))
 const FILTROS = [
   ['a', 'A', 'manchas medianas, 6 tonos'],
   ['b', 'B', 'más detalle, 8 tonos'],
@@ -467,7 +467,7 @@ onBeforeUnmount(() => {
     <CModalHeader><CModalTitle>Exportar video</CModalTitle></CModalHeader>
     <CModalBody v-if="exportando">
       <div class="fw-semibold mb-1">Tamaño</div>
-      <div v-for="[a, txt] in [[null, 'Original (sin reducir)'], [720, '720p'], [480, '480p']]" :key="String(a)" class="form-check">
+      <div v-for="[a, txt] in [[null, 'Original (sin reducir)'], [720, '720p'], [540, '540p'], [480, '480p']]" :key="String(a)" class="form-check">
         <input :id="`alto-${a}`" v-model="exportando.alto" class="form-check-input" type="radio" :value="a" :disabled="a !== null && !altosPosibles.includes(a)" />
         <label class="form-check-label" :for="`alto-${a}`">{{ txt }}</label>
       </div>

@@ -59,6 +59,7 @@ model Video {
   segments     Int?
   keyWrap      String? // JSON {epk, iv, ct}: clave del video sellada con la clave pública
   extra        String? // JSON sellado por el navegador al subir (etiquetas); el worker lo mete en meta y lo borra
+  reducir      Int? // elegido al subir: al procesarlo se crea una versión con este lado corto (720, 540) que lo reemplaza
   createdAt    DateTime  @default(now())
   readyAt      DateTime?
   jobs         Job[]
@@ -105,6 +106,7 @@ model Exportacion {
   progreso  Int       @default(0)
   size      Int       @default(0)
   estimado  Int? // peso final estimado mientras se crea (por lo que pesan los fragmentos ya hechos)
+  reemplazar Boolean  @default(false) // pedida al subir: al terminar reemplaza al original (si pesa menos)
   createdAt DateTime  @default(now())
   readyAt   DateTime?
   expiresAt DateTime?

@@ -80,7 +80,8 @@ export function fechaDelNombre(nombre) {
 }
 
 // Opciones de una exportación de video, para mostrar y para el nombre del archivo.
-export const etiquetaExport = (e) => [e.alto ? `${e.alto}p` : 'Tamaño original', e.filtro && `filtro ${e.filtro.toUpperCase()}`].filter(Boolean).join(' · ')
+export const etiquetaExport = (e) =>
+  [e.alto ? `${e.alto}p` : 'Tamaño original', e.filtro && `filtro ${e.filtro.toUpperCase()}`, e.reemplazar && 'reemplazará al original'].filter(Boolean).join(' · ')
 export const sufijoExport = (e) => `${e.alto ? `-${e.alto}p` : ''}${e.filtro ? `-filtro-${e.filtro}` : ''}`
 
 // Cuánto le queda a algo que vence (exportaciones).

@@ -79,6 +79,8 @@ function guardarNota() {
 onMounted(() => document.addEventListener('paste', alPegar))
 onBeforeUnmount(() => document.removeEventListener('paste', alPegar))
 
+const REDUCIR = [[null, 'Dejar el original'], [720, 'Reducir a 720p y reemplazar el original'], [540, 'Reducir a 540p y reemplazar el original']]
+const REDUCIR_CORTO = [[null, 'Original'], [720, 'Reducir a 720p'], [540, 'Reducir a 540p']]
 const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', listo: 'success', error: 'danger', duplicado: 'warning' }
 </script>
 
@@ -91,6 +93,17 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
   <div class="mb-3">
     <div class="small text-body-secondary mb-1">Etiquetas para lo que subas (opcional)</div>
     <EtiquetasEditor v-model="subidas.etiquetas" :sugerencias="boveda.etiquetas" />
+  </div>
+
+  <div class="mb-3">
+    <label class="small text-body-secondary mb-1 d-block" for="subir-reducir">Videos</label>
+    <select id="subir-reducir" v-model="subidas.reducir" class="form-select form-select-sm subir-reducir">
+      <option v-for="[v, txt] in REDUCIR" :key="String(v)" :value="v">{{ txt }}</option>
+    </select>
+    <div v-if="subidas.reducir" class="small text-body-secondary mt-1">
+      Se sube completo y, ya en la bóveda, la NAS crea la versión de {{ subidas.reducir }}p y con ella reemplaza al original (el original se borra). Si no
+      pesa menos, se queda el original. Lo ves en Exportaciones mientras se crea.
+    </div>
   </div>
 
   <div
@@ -148,6 +161,9 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
         <input type="datetime-local" class="form-control form-control-sm subir-fecha" :value="it.fecha ?? ''" aria-label="Fecha" @change="subidas.cambiar(it, { fecha: $event.target.value })" />
         <span v-if="it.fecha && !it.manual" class="text-body-secondary">del nombre</span>
         <span v-else-if="!it.fecha" class="text-body-secondary">la de la foto, o la de hoy</span>
+        <select v-if="it.video" class="form-select form-select-sm subir-reducir-item" :value="it.reducir ?? ''" aria-label="Reducir este video" @change="subidas.cambiar(it, { reducir: Number($event.target.value) || null })">
+          <option v-for="[v, txt] in REDUCIR_CORTO" :key="String(v)" :value="v ?? ''">{{ txt }}</option>
+        </select>
         <button type="button" class="btn btn-link btn-sm p-0 ms-sm-auto d-inline-flex align-items-center gap-1 text-decoration-none" title="Etiquetas de este archivo" @click="alternarEtq(it)">
           <CIcon icon="cil-tags" />
           <template v-if="!it.tags.length">Etiquetas</template>

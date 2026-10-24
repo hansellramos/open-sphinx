@@ -4,7 +4,7 @@
 // los metadatos cifrados): si ya está, no se sube. Etiquetas y fecha (la del nombre, p. ej. de WhatsApp, o la
 // elegida) viajan selladas con la pública. Si se cambian cuando ya se está subiendo, se guardan selladas en la
 // NAS junto a la subida (no se pierden si se recarga la página) y el worker las mete en el elemento.
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import * as tus from 'tus-js-client'
 import { createSHA256 } from 'hash-wasm'
@@ -14,6 +14,17 @@ import { api } from '@/services/api'
 
 const PEDAZO = 8 * 1024 * 1024
 let seq = 0
+
+// Reducir videos al subirlos (lado corto 720 o 540; null = dejar el original). Se recuerda en este navegador.
+const esVideo = (f) => f.type?.startsWith('video/') || /\.(mov|mp4|m4v|mkv|webm|avi|3gp)$/i.test(f.name)
+function leerReducir() {
+  try {
+    const x = Number(localStorage.getItem('boveda.reducir'))
+    return [720, 540].includes(x) ? x : null
+  } catch {
+    return null
+  }
+}
 
 async function huella(file, progreso) {
   const h = await createSHA256()
@@ -28,6 +39,12 @@ async function huella(file, progreso) {
 export const useSubidasStore = defineStore('subidas', () => {
   const items = ref([])
   const etiquetas = ref([]) // nombres que se ponen a lo que se agregue (opcional)
+  const reducir = ref(leerReducir()) // para los videos que se agreguen
+  watch(reducir, (x) => {
+    try {
+      localStorage.setItem('boveda.reducir', x ?? '')
+    } catch {}
+  })
   const activa = computed(() => items.value.some((i) => i.estado === 'subiendo'))
   let revisando = false
 
@@ -36,6 +53,7 @@ export const useSubidasStore = defineStore('subidas', () => {
       items.value.push({
         id: ++seq, file, nombre: file.name, tam: file.size, progreso: 0, estado: 'revisando', error: null,
         tags: [...etiquetas.value], fecha: fechaDelNombre(file.name), manual: false, titulo: null, sha: null, igual: null,
+        video: esVideo(file), reducir: esVideo(file) ? reducir.value : null,
       })
     revisar()
   }
@@ -90,7 +108,7 @@ export const useSubidasStore = defineStore('subidas', () => {
       chunkSize: 32 * 1024 * 1024,
       retryDelays: [0, 1000, 3000, 5000, 10000, 30000],
       removeFingerprintOnSuccess: true,
-      metadata: { filename: it.nombre, filetype: it.file.type || '', ...(extra && { extra }) },
+      metadata: { filename: it.nombre, filetype: it.file.type || '', ...(extra && { extra }), ...(it.reducir && { reducir: String(it.reducir) }) },
       onProgress: (sent, total) => {
         it.progreso = Math.round((sent / total) * 1000) / 10
         medir(it, sent, total)
@@ -123,6 +141,7 @@ export const useSubidasStore = defineStore('subidas', () => {
   // salió, quedan pendientes en la bóveda y se aplican cuando termine de procesarse.
   function cambiar(it, c) {
     if ('tags' in c) it.tags = c.tags
+    if ('reducir' in c) it.reducir = c.reducir
     if ('fecha' in c) {
       it.fecha = c.fecha || null
       it.manual = true
@@ -157,7 +176,7 @@ export const useSubidasStore = defineStore('subidas', () => {
       if (id) {
         const extra = JSON.stringify(await boveda.sellar(await ajustesDe(it)))
         try {
-          return await api.put(`/videos/por-subida/${encodeURIComponent(id)}/ajuste`, { extra })
+          return await api.put(`/videos/por-subida/${encodeURIComponent(id)}/ajuste`, { extra, reducir: it.reducir })
         } catch (e) {
           if (e.status !== 404) throw e
         }
@@ -213,5 +232,5 @@ export const useSubidasStore = defineStore('subidas', () => {
     if (activa.value) e.preventDefault()
   })
 
-  return { items, etiquetas, activa, agregar, cambiar, reintentar, subirIgual, cancelar, limpiarListos }
+  return { items, etiquetas, reducir, activa, agregar, cambiar, reintentar, subirIgual, cancelar, limpiarListos }
 })
