@@ -39,6 +39,20 @@ services:
       app:
         condition: service_healthy
 
+  # Mantiene montado el volumen `ram` mientras app y worker se recrean (en un despliegue Docker detiene los dos y,
+  # sin nadie que lo use, el tmpfs se descarta con las claves prestadas y las llaves de subida). No cambia entre
+  # despliegues, así que compose no lo reinicia. Corre como nobody: no puede leer nada de adentro (700, uid 1000).
+  ram:
+    image: alpine:latest
+    container_name: boveda_ram
+    restart: always
+    user: "65534:65534"
+    command: ["sleep", "infinity"]
+    volumes:
+      - ram:/ram:ro
+    network_mode: none
+    mem_limit: 16m
+
 volumes:
   ram:
     driver: local
