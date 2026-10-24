@@ -167,3 +167,59 @@ test('un video que no se puede reproducir se guarda como archivo', async () => {
   assert.equal(meta.kind, 'archivo')
   assert.equal((await original(key, vdir, meta.parts)).toString(), 'no es un video de verdad')
 })
+
+test('versión ligera: 720p cifrada con la clave prestada, sin dejar la clave, y vence', async () => {
+  const priv = await nuevaBoveda()
+  const { cicloLigera, vencerLigeras, recuperarLigeras } = await import('../lib/ligera.ts')
+  const uploadId = 'up-ligera'
+  const input = path.join(paths.subidas, uploadId)
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1920x1080:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440',
+    '-t', '14', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac', '-f', 'mov', input])
+  writeFileSync(`${input}.json`, '{}')
+  const v = await prisma.video.create({ data: { originalName: 'GRANDE.MOV', uploadId } })
+  await procesar(v.id)
+  const { listo, key, vdir } = await abrir(priv, v.id)
+
+  // El navegador presta los bytes de la clave del video.
+  const raw = await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse(listo.keyWrap))
+  const l = await prisma.ligera.create({ data: { videoId: v.id, clave: c.b64u(raw), duracion: 14 } })
+  assert.equal(await cicloLigera(), true)
+  const hecha = await prisma.ligera.findUniqueOrThrow({ where: { id: l.id } })
+  assert.equal(hecha.status, 'lista', hecha.error ?? '')
+  assert.equal(hecha.clave, null, 'no queda la clave')
+  assert.ok(hecha.size > 0 && hecha.expiresAt.getTime() - Date.now() > 6.9 * 24 * 3600e3)
+  const ldir = path.join(vdir, 'ligera')
+  const files = readdirSync(ldir)
+  assert.ok(files.every((f) => f === 'index.m3u8' || f.endsWith('.enc')), 'solo cifrado')
+  assert.deepEqual(readdirSync(paths.tmp), [], 'no deja temporales')
+  const segs = readFileSync(path.join(ldir, 'index.m3u8'), 'utf8').split('\n').filter((x) => /^seg_\d{5}\.m4s$/.test(x))
+  const plano = [Buffer.from(await c.decryptBlob(key, readFileSync(path.join(ldir, 'init.mp4.enc'))))]
+  for (const s of segs) plano.push(Buffer.from(await c.decryptBlob(key, readFileSync(path.join(ldir, `${s}.enc`)))))
+  const out = path.join(dir, 'ligera.mp4')
+  writeFileSync(out, Buffer.concat(plano))
+  const [ancho, alto, codec] = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,codec_name', '-of', 'csv=p=0:s=,', out]).toString().trim().split(',').map((x) => (/^\d+$/.test(x) ? Number(x) : x)).sort((a, b) => (typeof a === 'string' ? 1 : -1))
+  assert.deepEqual([alto, ancho].sort(), [1280, 720].sort())
+  assert.ok(codec === 'h264')
+  const d = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', out]).toString())
+  assert.ok(Math.abs(d - 14) < 0.6, `duración ${d}`)
+
+  // Clave equivocada → error y sin clave guardada.
+  await prisma.ligera.update({ where: { id: l.id }, data: { status: 'en_cola', clave: c.b64u(new Uint8Array(32)) } })
+  await cicloLigera()
+  const mala = await prisma.ligera.findUniqueOrThrow({ where: { id: l.id } })
+  assert.equal(mala.status, 'error')
+  assert.match(mala.error, /clave no corresponde/)
+  assert.equal(mala.clave, null)
+
+  // Interrumpida: al arrancar queda en error.
+  await prisma.ligera.update({ where: { id: l.id }, data: { status: 'procesando' } })
+  await recuperarLigeras()
+  assert.equal((await prisma.ligera.findUniqueOrThrow({ where: { id: l.id } })).status, 'error')
+
+  // Vence: se borran la carpeta y la fila.
+  await prisma.ligera.update({ where: { id: l.id }, data: { status: 'lista', expiresAt: new Date(Date.now() - 1000) } })
+  assert.equal(await vencerLigeras(), 1)
+  assert.ok(!existsSync(ldir))
+  assert.equal(await prisma.ligera.count(), 0)
+  assert.ok(existsSync(path.join(vdir, 'init.mp4.enc')), 'el video completo sigue')
+})

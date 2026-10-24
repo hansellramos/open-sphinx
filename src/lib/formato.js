@@ -78,3 +78,12 @@ export function fechaDelNombre(nombre) {
   if (+me < 1 || +me > 12 || +d < 1 || +d > 31 || +h > 23 || +mi > 59 || +a > new Date().getFullYear()) return null
   return `${a}-${me}-${d}T${dos(h)}:${mi}`
 }
+
+// Cuánto le queda a algo que vence (versiones ligeras).
+export function venceEn(d) {
+  const h = (new Date(d) - Date.now()) / 3600e3
+  if (h < 1) return 'vence en menos de una hora'
+  if (h < 24) return `vence en ${Math.round(h)} h`
+  const dias = Math.round(h / 24)
+  return `vence en ${dias} ${dias === 1 ? 'día' : 'días'}`
+}

@@ -91,6 +91,9 @@ export const useAuthStore = defineStore('auth', () => {
   // Abre una clave sellada con la pública (la de un video o la de metadatos).
   const abrirSellado = (sealed) => c.openFileKey(privateKey.value, sealed)
 
+  // Bytes de la clave de un video (para la versión ligera, que hace la NAS). No se guardan.
+  const claveCrudaDe = async (video) => c.b64u(await c.openFileKeyRaw(privateKey.value, video.keyWrap))
+
   async function claveDe(video) {
     if (!fileKeys.has(video.id)) fileKeys.set(video.id, await abrirSellado(video.keyWrap))
     return fileKeys.get(video.id)
@@ -109,5 +112,5 @@ export const useAuthStore = defineStore('auth', () => {
     estado.value = { ...estado.value, sesion: false }
   }
 
-  return { estado, desbloqueada, cargar, entrar, conRecuperacion, registrarPasskey, crearBoveda, agregarPasskey, nuevoCodigo, abrirSellado, claveDe, bloquear, salir }
+  return { estado, desbloqueada, cargar, entrar, conRecuperacion, registrarPasskey, crearBoveda, agregarPasskey, nuevoCodigo, abrirSellado, claveDe, claveCrudaDe, bloquear, salir }
 })

@@ -1,6 +1,7 @@
 // Worker de la cola: toma un trabajo a la vez. Videos: los corta en fragmentos; fotos: miniatura (y copia
 // JPEG si es HEIC); archivos: tal cual. Todo se cifra con una clave nueva por elemento, esa clave se sella
-// con la clave pública de la bóveda y se borra lo que quedó sin cifrar.
+// con la clave pública de la bóveda y se borra lo que quedó sin cifrar. Cuando no hay subidas, hace las versiones
+// ligeras pedidas (de a una) y borra las vencidas.
 import 'dotenv/config'
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile, copyFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -8,6 +9,7 @@ import { prisma } from './db.ts'
 import { borrarSubida, paths, videoDir } from './lib/paths.ts'
 import { cifrarEnPartes, miniatura, prepararImagen, probe, segmentar, sha256, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
 import { encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
+import { cicloLigera, recuperarLigeras, vencerLigeras } from './lib/ligera.ts'
 
 const ESPERA_MS = 5_000
 const MAX_INTENTOS = 3
@@ -158,12 +160,18 @@ async function ciclo() {
 if (import.meta.main) {
   // Si el worker murió a mitad de un trabajo, se vuelve a encolar.
   await prisma.job.updateMany({ where: { status: 'corriendo' }, data: { status: 'pendiente' } })
+  await recuperarLigeras()
+  let ultimoVencer = 0
   console.log('[worker] esperando trabajos…')
   let parar = false
   for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => (parar = true))
   while (!parar) {
     await respaldoDiario().catch((e) => console.error('[worker] respaldo falló:', e.message))
-    const hubo = await ciclo().catch((e) => (console.error('[worker]', e), false))
+    if (Date.now() - ultimoVencer > 60_000) {
+      ultimoVencer = Date.now()
+      await vencerLigeras().then((n) => n && console.log(`[worker] ${n} versión(es) ligera(s) vencida(s) borrada(s)`), (e) => console.error('[worker] vencer ligeras:', e.message))
+    }
+    const hubo = (await ciclo().catch((e) => (console.error('[worker]', e), false))) || (await cicloLigera().catch((e) => (console.error('[worker]', e), false)))
     if (!hubo) await new Promise((r) => setTimeout(r, ESPERA_MS))
   }
   await prisma.$disconnect()

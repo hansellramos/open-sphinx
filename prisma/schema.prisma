@@ -62,6 +62,7 @@ model Video {
   createdAt    DateTime  @default(now())
   readyAt      DateTime?
   jobs         Job[]
+  ligera       Ligera?
   tags         Tag[] // legado
 }
 
@@ -87,4 +88,21 @@ model Job {
   finishedAt DateTime?
 
   @@index([status, createdAt])
+}
+
+// Versión ligera (720p) de un video, a pedido y por 7 días. `clave` es la del video prestada por el navegador:
+// solo existe mientras está en cola; el worker la borra al tomar el trabajo.
+model Ligera {
+  id        String    @id @default(uuid())
+  videoId   String    @unique
+  video     Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  status    String    @default("en_cola") // en_cola | procesando | lista | error
+  error     String?
+  clave     String?
+  duracion  Float?
+  progreso  Int       @default(0)
+  size      Int       @default(0)
+  createdAt DateTime  @default(now())
+  readyAt   DateTime?
+  expiresAt DateTime?
 }

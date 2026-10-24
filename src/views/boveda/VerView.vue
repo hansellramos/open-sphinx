@@ -8,8 +8,9 @@ import Hls from 'hls.js'
 import { useAuthStore } from '@/stores/auth'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
+import { useLigerasStore } from '@/stores/ligeras'
 import { decryptBlob } from '@shared/crypto.js'
-import { aLocal, deLocal, duracion, extension, fechaCorta, fechaHora, iconoArchivo, tamano, vistaPrevia } from '@/lib/formato'
+import { aLocal, deLocal, duracion, extension, fechaCorta, fechaHora, iconoArchivo, tamano, venceEn, vistaPrevia } from '@/lib/formato'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
 import VisorCompleto from '@/components/elementos/VisorCompleto.vue'
@@ -37,6 +38,10 @@ const visor = ref(false)
 let archivoFoto = null // la foto ya descifrada, para compartirla sin volver a bajarla
 let hls = null
 const { progreso: progresoCompartir, compartir } = useCompartir()
+const { progreso: progresoLigera, compartir: compartirLigera } = useCompartir()
+const ligeras = useLigerasStore()
+const ligera = computed(() => (item.value ? ligeras.de(item.value.id) : null))
+const viendoLigera = ref(route.query.ligera === '1')
 
 const item = computed(() => boveda.items.find((v) => v.id === route.params.id))
 const m = computed(() => item.value?.m)
@@ -143,13 +148,30 @@ async function reproducir() {
   if (!Hls.isSupported()) return (error.value = 'Este navegador no soporta el reproductor (en iPhone se necesita iOS 17.1 o superior)')
   const key = await auth.claveDe(item.value)
   await nextTick() // el <video> aparece cuando ya se sabe el tipo
+  hls?.destroy()
+  error.value = ''
   hls = new Hls({ loader: loaderDescifrador(key), maxBufferLength: 30, maxMaxBufferLength: 60 })
   hls.on(Hls.Events.ERROR, (_, d) => {
     if (d.fatal) error.value = `Error de reproducción: ${d.details}`
   })
-  hls.loadSource(`/api/videos/${item.value.id}/archivo/index.m3u8`)
+  hls.loadSource(`/api/videos/${item.value.id}/${viendoLigera.value ? 'ligera' : 'archivo'}/index.m3u8`)
   hls.attachMedia(el.value)
 }
+
+// Versión ligera (720p): la hace la NAS con la clave de este video, que se le presta solo para eso.
+const pedirLigera = accion(async () => {
+  await ligeras.pedir(item.value)
+  toast.info('En cola: la NAS la está preparando. Dura 7 días.')
+})
+const borrarLigera = accion(async () => {
+  await ligeras.borrar(ligera.value)
+  if (viendoLigera.value) verLigera(false)
+  toast.ok('Versión ligera borrada')
+})
+const verLigera = accion(async (si) => {
+  viendoLigera.value = si
+  await reproducir()
+})
 
 const mostrarPrevia = accion(async () => {
   cargando.value = true
@@ -169,7 +191,11 @@ onMounted(async () => {
     await boveda.cargar()
     if (!item.value) return (error.value = 'No encontrado')
     if (!m.value) return (error.value = 'Todavía se está procesando')
-    if (tipo.value === 'video') await reproducir()
+    if (tipo.value === 'video') {
+      await ligeras.cargar().catch(() => {})
+      if (viendoLigera.value && ligera.value?.status !== 'lista') viendoLigera.value = false
+      await reproducir()
+    }
     else if (tipo.value === 'imagen' || (previa.value && item.value.size <= PREVIA_AUTO)) await mostrarPrevia()
   } catch (e) {
     error.value = e.message
@@ -211,6 +237,7 @@ onBeforeUnmount(() => {
   <div class="ver-medio" @touchstart.passive="toqueInicio" @touchend.passive="tipo !== 'video' && toqueFin($event)">
   <!-- disableremoteplayback: requerido por ManagedMediaSource en iPhone -->
   <video v-if="tipo === 'video'" v-show="!error" ref="el" class="player" controls playsinline autoplay disableremoteplayback></video>
+  <div v-if="tipo === 'video' && viendoLigera" class="small text-body-secondary mt-1"><CIcon icon="cil-speedometer" size="sm" class="me-1" />Viendo la versión ligera (720p)</div>
 
   <template v-else-if="m">
     <div v-if="cargando" class="visor d-flex align-items-center justify-content-center">
@@ -263,6 +290,26 @@ onBeforeUnmount(() => {
         <CButton color="link" size="sm" class="py-0" @click="renombrar">Renombrar</CButton>
       </div>
       <div v-if="m.device" class="mb-1"><CIcon icon="cil-devices" class="me-2 text-body-secondary" />{{ m.device }}</div>
+      <div v-if="tipo === 'video'" class="mb-1">
+        <CIcon icon="cil-speedometer" class="me-2 text-body-secondary" />Versión ligera (720p):
+        <CButton v-if="!ligera" color="link" size="sm" class="py-0" @click="pedirLigera">Crear</CButton>
+        <span v-else-if="ligera.status === 'en_cola'" class="text-body-secondary ms-1">en cola…</span>
+        <span v-else-if="ligera.status === 'procesando'" class="text-body-secondary ms-1">creando… {{ ligera.progreso }}%</span>
+        <template v-else-if="ligera.status === 'error'">
+          <span class="text-danger ms-1">{{ ligera.error }}</span>
+          <CButton color="link" size="sm" class="py-0" @click="pedirLigera">Reintentar</CButton>
+        </template>
+        <template v-else>
+          <span class="text-body-secondary ms-1">{{ tamano(ligera.size) }} · {{ venceEn(ligera.expiresAt) }}</span>
+          <div class="d-flex flex-wrap gap-1 mt-1 ms-4">
+            <CButton color="secondary" variant="outline" size="sm" @click="verLigera(!viendoLigera)">{{ viendoLigera ? 'Ver completa' : 'Ver ligera' }}</CButton>
+            <CButton color="secondary" variant="outline" size="sm" :disabled="progresoLigera !== null" title="Compartir la versión ligera" @click="compartirLigera(item, null, true)">
+              <CIcon icon="cil-share-boxed" class="me-1" />{{ progresoLigera !== null ? `${progresoLigera}%` : 'Compartir ligera' }}
+            </CButton>
+            <CButton color="danger" variant="ghost" size="sm" title="Borrar la versión ligera" @click="borrarLigera">Borrar</CButton>
+          </div>
+        </template>
+      </div>
       <div class="text-body-secondary">
         <template v-if="tipo === 'video'">{{ duracion(m.duration) }} · {{ m.width }}×{{ m.height }} · {{ m.videoCodec?.toUpperCase() }} · </template>
         <template v-else-if="tipo === 'imagen'">{{ m.width }}×{{ m.height }} · </template>

@@ -136,16 +136,21 @@ export async function sealFileKey(vaultPublicKeyB64u, fileKeyRaw) {
   return { epk: b64u(epk), iv: b64u(iv), ct: b64u(ct) }
 }
 
-// Abre la clave del video con la clave privada (lo hace el navegador).
-export async function openFileKey(privateKey, sealed) {
+// Abre la clave del video con la clave privada (lo hace el navegador). Los bytes crudos solo salen para
+// prestárselos a la NAS en un trabajo puntual (la versión ligera de un video).
+export async function openFileKeyRaw(privateKey, sealed) {
   const epk = fromB64u(sealed.epk)
   const ephPub = await subtle.importKey('raw', epk, { name: 'X25519' }, false, [])
   const shared = new Uint8Array(await subtle.deriveBits({ name: 'X25519', public: ephPub }, privateKey, 256))
   const kek = await hkdfAesKey(shared, epk, INFO_FILEKEY, ['decrypt'])
-  const raw = await subtle.decrypt({ name: 'AES-GCM', iv: fromB64u(sealed.iv) }, kek, fromB64u(sealed.ct))
-  // encrypt también: el navegador re-cifra los metadatos del video al editarlos.
-  return subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt'])
+  return new Uint8Array(await subtle.decrypt({ name: 'AES-GCM', iv: fromB64u(sealed.iv) }, kek, fromB64u(sealed.ct)))
 }
+export async function openFileKey(privateKey, sealed) {
+  // encrypt también: el navegador re-cifra los metadatos del video al editarlos.
+  return subtle.importKey('raw', await openFileKeyRaw(privateKey, sealed), 'AES-GCM', false, ['encrypt', 'decrypt'])
+}
+// La clave de un video a partir de sus bytes (el worker, con la que le prestó el navegador).
+export const importFileKey = (raw) => subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt'])
 
 // ---------------- archivos ----------------
 

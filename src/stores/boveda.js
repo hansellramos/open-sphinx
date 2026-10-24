@@ -246,8 +246,8 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   // ---------- originales (fotos y archivos, en partes) ----------
 
-  async function bajar(v, nombre) {
-    const res = await fetch(`/api/videos/${v.id}/archivo/${nombre}`, { credentials: 'include' })
+  async function bajar(v, nombre, ruta = 'archivo') {
+    const res = await fetch(`/api/videos/${v.id}/${ruta}/${nombre}`, { credentials: 'include' })
     if (!res.ok) throw new Error(res.status === 401 ? 'Sesión expirada' : 'No se pudo bajar el archivo')
     return res.arrayBuffer()
   }
@@ -281,8 +281,8 @@ export const useBovedaStore = defineStore('boveda', () => {
   }
 
   // Para compartir (WhatsApp, etc.): la foto como se ve (JPEG si era HEIC), el video armado como un
-  // MP4 (init + fragmentos, ya descifrados) y los archivos tal cual. Todo queda en memoria.
-  async function paraCompartir(v, progreso) {
+  // MP4 (init + fragmentos, ya descifrados; `ligera` = la versión 720p) y los archivos tal cual. Todo en memoria.
+  async function paraCompartir(v, progreso, ligera = false) {
     const t = tipo(v)
     const base = (v.m.originalName || v.m.title || 'archivo').replace(/\.[^.]+$/, '')
     if (t === 'imagen') {
@@ -291,14 +291,15 @@ export const useBovedaStore = defineStore('boveda', () => {
     }
     if (t === 'archivo') return new File([await original(v, progreso)], v.m.originalName || base, { type: v.m.mime || 'application/octet-stream' })
     const key = await auth.claveDe(v)
-    const lista = new TextDecoder().decode(await bajar(v, 'index.m3u8'))
+    const ruta = ligera ? 'ligera' : 'archivo'
+    const lista = new TextDecoder().decode(await bajar(v, 'index.m3u8', ruta))
     const segs = lista.split('\n').map((l) => l.trim()).filter((l) => /^seg_\d{5}\.m4s$/.test(l))
-    const partes = [await decryptBlob(key, await bajar(v, 'init.mp4'))]
+    const partes = [await decryptBlob(key, await bajar(v, 'init.mp4', ruta))]
     for (let i = 0; i < segs.length; i++) {
-      partes.push(await decryptBlob(key, await bajar(v, segs[i])))
+      partes.push(await decryptBlob(key, await bajar(v, segs[i], ruta)))
       progreso?.((i + 1) / segs.length)
     }
-    return new File(partes, `${base}.mp4`, { type: 'video/mp4' })
+    return new File(partes, `${base}${ligera ? '-720p' : ''}.mp4`, { type: 'video/mp4' })
   }
 
   // Hoja de compartir del sistema; si el navegador no la tiene, se descarga.

@@ -7,6 +7,7 @@ import { authRoutes, isAuthenticated, leerSesion, sesion, setupAuth } from './au
 import bovedaRoutes from './routes/boveda.ts'
 import videoRoutes, { subidas } from './routes/videos.ts'
 import etiquetaRoutes from './routes/etiquetas.ts'
+import ligeraRoutes from './routes/ligeras.ts'
 
 const app = express()
 app.disable('x-powered-by')
@@ -26,6 +27,7 @@ api.use(isAuthenticated)
 api.use('/boveda', bovedaRoutes)
 api.use('/videos', videoRoutes)
 api.use('/etiquetas', etiquetaRoutes)
+api.use('/ligeras', ligeraRoutes)
 app.use('/api', api)
 
 // En producción la API también sirve el frontend compilado (npm run build → dist/).

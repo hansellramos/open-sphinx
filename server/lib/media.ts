@@ -11,9 +11,10 @@ import { TAM_PARTE, aadParte, encryptBlob, nombreParte } from '../../shared/cryp
 const tieneNice = spawnSync('nice', ['true']).status === 0
 const tieneIonice = spawnSync('ionice', ['-c3', 'true']).status === 0
 
+export const conPrioridadBaja = (cmd: string, args: string[]) => [...(tieneIonice ? ['ionice', '-c3'] : []), ...(tieneNice ? ['nice', '-n', '19'] : []), cmd, ...args]
+
 function run(cmd: string, args: string[]): Promise<string> {
-  const pre = [...(tieneIonice ? ['ionice', '-c3'] : []), ...(tieneNice ? ['nice', '-n', '19'] : [])]
-  const [bin, ...rest] = [...pre, cmd, ...args]
+  const [bin, ...rest] = conPrioridadBaja(cmd, args)
   return new Promise((ok, ko) => {
     const p = spawn(bin, rest, { stdio: ['ignore', 'pipe', 'pipe'] })
     let out = '', err = ''

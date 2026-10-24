@@ -7,6 +7,7 @@ import { Server as TusServer } from '@tus/server'
 import { FileStore } from '@tus/file-store'
 import { prisma } from '../db.ts'
 import { ARCHIVO_VALIDO, borrarSubida, paths, videoDir } from '../lib/paths.ts'
+import { ligeraDir, ligeraPublica } from '../lib/ligera.ts'
 
 const MAX_BYTES = 20 * 1024 ** 3 // 20 GB
 
@@ -105,6 +106,31 @@ r.delete('/:id', async (req, res) => {
   if (v.uploadId) await borrarSubida(v.uploadId)
   await prisma.video.delete({ where: { id: v.id } })
   res.json({ ok: true })
+})
+
+// Pide la versión ligera (720p). El navegador presta la clave del video solo para este trabajo: queda en la
+// fila mientras espera en la cola y el worker la borra al tomarla. Si ya existe, se devuelve tal cual.
+r.post('/:id/ligera', async (req, res) => {
+  const clave = String(req.body?.clave ?? '')
+  const duracion = Number(req.body?.duracion)
+  if (!/^[A-Za-z0-9_-]{43}$/.test(clave)) return res.status(400).json({ error: 'Clave no válida' })
+  const v = await prisma.video.findUnique({ where: { id: req.params.id }, include: { ligera: true } })
+  if (!v || v.status !== 'listo' || !v.segments) return res.status(404).json({ error: 'No hay un video listo con ese id' })
+  const l = v.ligera
+  if (l && l.status !== 'error') return res.json(ligeraPublica(l))
+  const data = { status: 'en_cola', error: null, clave, progreso: 0, duracion: Number.isFinite(duracion) && duracion > 0 ? duracion : null, createdAt: new Date() }
+  const nueva = l ? await prisma.ligera.update({ where: { id: l.id }, data }) : await prisma.ligera.create({ data: { ...data, videoId: v.id } })
+  res.json(ligeraPublica(nueva))
+})
+
+const LIGERA_VALIDO = /^(index\.m3u8|init\.mp4|seg_\d{5}\.m4s)$/
+r.get('/:id/ligera/:nombre', (req, res) => {
+  const { id, nombre } = req.params
+  if (!/^[0-9a-f-]{36}$/.test(id) || !LIGERA_VALIDO.test(nombre)) return res.status(400).end()
+  const file = path.join(ligeraDir(id), nombre === 'index.m3u8' ? nombre : `${nombre}.enc`)
+  res.set('Cache-Control', 'private, no-cache') // se puede volver a crear con otro contenido
+  res.type(nombre === 'index.m3u8' ? 'application/vnd.apple.mpegurl' : 'application/octet-stream')
+  res.sendFile(file, (err) => err && !res.headersSent && res.status(404).end())
 })
 
 // Archivos cifrados (y el index.m3u8, que solo lista nombres y duraciones).
