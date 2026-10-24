@@ -1,6 +1,8 @@
 # En la NAS: /volume2/docker/boveda/docker-compose.yml. Datos en /volume2/boveda.
 # La API solo escucha en 127.0.0.1: se entra únicamente por Tailscale Serve (HTTPS).
-# Lo que está sin cifrar (y las llaves temporales) va en /dev/shm de la NAS (RAM): un reinicio lo borra.
+# Lo que está sin cifrar (y las llaves temporales) va en el volumen `ram` (tmpfs: memoria, nunca disco), que
+# comparten los dos contenedores. Se borra al reiniciar la NAS o si se detienen los dos a la vez. No se usa
+# /dev/shm del host porque systemd-logind (RemoveIPC) borra ahí lo del usuario 1000 al cerrar su sesión SSH.
 services:
   app:
     image: boveda:latest
@@ -10,10 +12,10 @@ services:
     ports:
       - "127.0.0.1:3102:3102"
     environment:
-      RAM_DIR: /shm/boveda
+      RAM_DIR: /ram
     volumes:
       - /volume2/boveda:/data
-      - /dev/shm:/shm
+      - ram:/ram
     mem_limit: 256m
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3102/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -27,12 +29,20 @@ services:
     env_file: .env
     command: ["node", "server/worker.ts"]
     environment:
-      RAM_DIR: /shm/boveda
+      RAM_DIR: /ram
     volumes:
       - /volume2/boveda:/data
-      - /dev/shm:/shm
+      - ram:/ram
     mem_limit: 768m
     cpus: 2
     depends_on:
       app:
         condition: service_healthy
+
+volumes:
+  ram:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g,uid=1000,gid=1000,mode=0700

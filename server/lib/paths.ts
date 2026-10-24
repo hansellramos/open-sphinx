@@ -1,7 +1,7 @@
 // Carpetas de datos. En disco solo hay material cifrado: videos/ (fotos y archivos también, por historia) y
 // subidas/ (lo que llega por tus, cifrado al vuelo con una llave temporal). Todo lo que está SIN cifrar, y
-// esas llaves temporales y las prestadas para exportar, vive en ram/: en la NAS es /dev/shm (memoria), así
-// que un reinicio lo borra. En desarrollo es una carpeta más.
+// esas llaves temporales y las prestadas para exportar, vive en ram/: en la NAS es un volumen tmpfs (memoria),
+// así que un reinicio lo borra. En desarrollo es una carpeta más.
 import { mkdirSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
