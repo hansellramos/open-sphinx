@@ -240,9 +240,21 @@ try {
   if (altoE !== 'h264,854,480') throw new Error(`exportación: ${altoE}`)
   await page.locator('.sidebar a', { hasText: 'Exportaciones' }).click()
   await page.getByText('Lista', { exact: true }).waitFor()
+  // Se cortó (p. ej. se perdió la clave prestada): desde esta pantalla se reanuda.
+  {
+    const Database = (await import('better-sqlite3')).default
+    const db = new Database(`${dir}/db/boveda.db`)
+    db.prepare("UPDATE Exportacion SET status = 'error', progreso = 50, error = 'Falta la clave (se reinició la NAS): reanúdala'").run()
+    db.close()
+  }
+  await page.locator('.sidebar a', { hasText: 'Mapa' }).click()
+  await page.locator('.sidebar a', { hasText: 'Exportaciones' }).click()
+  await page.getByText(/Quedó en 50% · Falta la clave/).waitFor()
+  await page.getByRole('button', { name: 'Reanudar' }).click()
+  await page.getByText('Lista', { exact: true }).waitFor({ timeout: 180000 })
   await page.getByTitle('Borrar').click()
   await page.getByText('No hay exportaciones').waitFor()
-  paso('exportar 480p + filtro A: rango estimado antes y peso estimado mientras se crea; se crea en la NAS, se reproduce, se comparte como MP4 y se borra desde su pantalla')
+  paso('exportar 480p + filtro A: rango estimado antes y peso estimado mientras se crea; se crea en la NAS, se reproduce, se comparte como MP4, se reanuda y se borra desde su pantalla')
   await page.goto(`${base}/#/subir`)
   await page.locator('input[type=file]').setInputFiles([foto])
   await page.getByText('Ya está en la bóveda:').waitFor({ timeout: 30000 })
@@ -409,7 +421,7 @@ try {
   await page.getByRole('button', { name: 'Nueva…' }).click()
   await page.getByLabel('480p').check()
   await page.getByLabel(/^A: posterizado/).check()
-  await page.locator('.export-estimado', { hasText: 'Según tu exportación anterior' }).waitFor() // aprendió de la primera
+  await page.locator('.export-estimado', { hasText: /Según tus? / }).waitFor() // aprendió de la primera
   await page.getByLabel('Ninguno').check()
   await page.getByRole('button', { name: 'Exportar', exact: true }).click()
   await page.getByRole('button', { name: 'Usar como original' }).click({ timeout: 180000 })

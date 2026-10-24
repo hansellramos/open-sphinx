@@ -30,6 +30,19 @@ async function borrar(e) {
     toast.error(err)
   }
 }
+// Vuelve a prestar la clave: sigue desde el último fragmento que quedó hecho (o empieza, si no hay nada).
+const reanudando = ref(null)
+async function reanudar(v, e) {
+  reanudando.value = e.id
+  try {
+    await exportados.pedir(v, { alto: e.alto, filtro: e.filtro })
+    toast.ok(e.progreso ? `Sigue desde el ${e.progreso}%` : 'Otra vez en cola')
+  } catch (err) {
+    toast.error(err)
+  } finally {
+    reanudando.value = null
+  }
+}
 async function compartirE(v, e) {
   compartiendo.value = e.id
   try {
@@ -69,7 +82,7 @@ onMounted(async () => {
           <template v-if="e.status === 'lista'">
             <span>{{ tamano(e.size) }}</span><span>{{ venceEn(e.expiresAt) }}</span>
           </template>
-          <span v-else-if="e.status === 'error'" class="text-danger text-truncate">{{ e.error }}</span>
+          <span v-else-if="e.status === 'error'" class="text-danger text-truncate">{{ e.progreso ? `Quedó en ${e.progreso}% · ` : '' }}{{ e.error }}</span>
         </div>
       </div>
       <div class="d-flex flex-wrap gap-1 justify-content-end">
@@ -79,6 +92,9 @@ onMounted(async () => {
             <CIcon icon="cil-share-boxed" /><span v-if="compartiendo === e.id && progreso !== null" class="small ms-1">{{ progreso }}%</span>
           </CButton>
         </template>
+        <CButton v-if="e.status === 'error'" color="primary" variant="outline" size="sm" :disabled="reanudando !== null" @click="reanudar(v, e)">
+          <CIcon icon="cil-media-play" class="me-1" />{{ e.progreso ? 'Reanudar' : 'Reintentar' }}
+        </CButton>
         <CButton v-if="e.status !== 'procesando'" color="danger" variant="ghost" size="sm" title="Borrar" @click="borrar(e)"><CIcon icon="cil-trash" /></CButton>
       </div>
     </CListGroupItem>
