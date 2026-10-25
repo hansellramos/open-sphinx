@@ -11,7 +11,7 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { prisma } from './db.ts'
 import { borrarSubida, paths, videoDir } from './lib/paths.ts'
-import { cifradorHLS, cifrarEnPartes, listaVOD, miniatura, prepararImagen, probe, segmentar, sha256, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
+import { cifradorHLS, cifrarEnPartes, listaVOD, miniatura, prepararImagen, probe, run, segmentar, sha256, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
 import { abrirSubida, leerLlave, servir } from './lib/temporal.ts'
 import { b64u, encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
 import { cicloExportacion, guardarClave, recuperarExportaciones, vencerExportaciones } from './lib/exportar.ts'
@@ -59,6 +59,10 @@ export async function procesar(videoId: string) {
       const c = cifradorHLS(work, destinoTmp, fk.key, { alCifrar: (s) => void segmentos.push(s) })
       try {
         p = await probe(local.url)
+        // TEMPORAL (diagnóstico de cuadros por segundo): solo números del video, nada del contenido.
+        await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_packets', '-show_entries', 'stream=codec_name,r_frame_rate,avg_frame_rate,time_base,nb_frames,nb_read_packets,duration', '-of', 'json', local.url])
+          .then((o) => console.log(`[fps-diag] ${video.id} original: ${JSON.stringify(JSON.parse(o).streams?.[0] ?? {})}`))
+          .catch((e) => console.log(`[fps-diag] ${video.id} original: no se pudo medir (${e.message})`))
         await segmentar(local.url, work, p)
         await c.terminar()
       } catch (e) {
