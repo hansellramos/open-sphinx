@@ -15,6 +15,7 @@ import { cifradorHLS, cifrarEnPartes, listaVOD, miniatura, prepararImagen, probe
 import { abrirSubida, leerLlave, servir } from './lib/temporal.ts'
 import { b64u, encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
 import { cicloExportacion, guardarClave, recuperarExportaciones, vencerExportaciones } from './lib/exportar.ts'
+import { cicloZip, recuperarZips, vencerZips } from './lib/zips.ts'
 
 const ESPERA_MS = 5_000
 const MAX_INTENTOS = 3
@@ -244,7 +245,7 @@ export async function ciclo() {
   return true
 }
 
-// Dos filas independientes: lo que subes (rápido) y las exportaciones (pueden tardar horas). Una no frena a la otra.
+// Dos filas independientes: lo que subes (rápido) y las exportaciones y ZIP (pueden tardar horas). Una no frena a la otra.
 async function fila(nombre: string, paso: () => Promise<boolean>, debeParar: () => boolean) {
   while (!debeParar()) {
     const hubo = await paso().catch((e) => (console.error(`[worker] ${nombre}:`, e), false))
@@ -258,6 +259,7 @@ if (import.meta.main) {
   await rm(paths.tmp, { recursive: true, force: true })
   await mkdir(paths.tmp, { recursive: true, mode: 0o700 })
   await recuperarExportaciones()
+  await recuperarZips()
   console.log('[worker] esperando trabajos…')
   let parar = false
   for (const s of ['SIGTERM', 'SIGINT']) process.on(s, () => (parar = true))
@@ -272,10 +274,11 @@ if (import.meta.main) {
       if (Date.now() - ultimoVencer > 60_000) {
         ultimoVencer = Date.now()
         await vencerExportaciones().then((n) => n && console.log(`[worker] ${n} exportación(es) vencida(s) borrada(s)`), (e) => console.error('[worker] vencer exportaciones:', e.message))
+        await vencerZips().then((n) => n && console.log(`[worker] ${n} zip(s) vencido(s) borrado(s)`), (e) => console.error('[worker] vencer zips:', e.message))
       }
       await new Promise((r) => setTimeout(r, ESPERA_MS))
     }
   }
-  await Promise.all([fila('subidas', ciclo, () => parar), fila('exportaciones', cicloExportacion, () => parar), mantenimiento()])
+  await Promise.all([fila('subidas', ciclo, () => parar), fila('exportaciones', async () => (await cicloExportacion()) || (await cicloZip()), () => parar), mantenimiento()])
   await prisma.$disconnect()
 }

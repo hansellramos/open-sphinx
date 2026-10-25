@@ -14,7 +14,7 @@ const tieneIonice = spawnSync('ionice', ['-c3', 'true']).status === 0
 
 export const conPrioridadBaja = (cmd: string, args: string[]) => [...(tieneIonice ? ['ionice', '-c3'] : []), ...(tieneNice ? ['nice', '-n', '19'] : []), cmd, ...args]
 
-function run(cmd: string, args: string[]): Promise<string> {
+export function run(cmd: string, args: string[]): Promise<string> {
   const [bin, ...rest] = conPrioridadBaja(cmd, args)
   return new Promise((ok, ko) => {
     const p = spawn(bin, rest, { stdio: ['ignore', 'pipe', 'pipe'] })

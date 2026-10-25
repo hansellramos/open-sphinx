@@ -327,6 +327,10 @@ export const useBovedaStore = defineStore('boveda', () => {
     await guardarCatalogo()
   }
 
+  // Cifrar/descifrar con la clave de metadatos (la del catálogo): p. ej. el nombre y la lista de un ZIP.
+  const cifrarMeta = (obj) => encryptJSON(metaKey.value, obj)
+  const descifrarMeta = (s) => decryptJSON(metaKey.value, s)
+
   // ---------- cambios a varios a la vez ----------
   // cambiosDe(v) → cambios para sus metadatos (o null si no cambia). De a 4 en paralelo (cada uno se cifra con su clave).
   async function editarVarios(vs, cambiosDe, progreso) {
@@ -488,7 +492,7 @@ export const useBovedaStore = defineStore('boveda', () => {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
     huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     favorito, renombrar, borrar, thumbUrl, publicKey: () => publicKey,
-    editarVarios, fechaVarios, ubicacionVarios, etiquetasVarios,
+    cifrarMeta, descifrarMeta, editarVarios, fechaVarios, ubicacionVarios, etiquetasVarios,
     albumes, album, albumesDe, crearAlbum, editarAlbum, borrarAlbum, agregarAAlbum, quitarDeAlbum, portadaAlbum, asignarAlbumes,
   }
 })

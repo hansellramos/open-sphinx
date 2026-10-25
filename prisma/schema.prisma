@@ -123,3 +123,24 @@ model TasaExport {
   pixSeg   Float  @default(0)
   n        Int    @default(0)
 }
+
+// ZIP con contraseña (tipo Takeout) de varios elementos. El servidor no sabe qué contiene: el nombre y la lista van
+// cifrados con la clave de metadatos (meta) y la contraseña, sellada con la pública de la bóveda (como las claves de
+// los elementos). Mientras se arma, la lista con las claves prestadas vive solo en RAM. Vence a los 7 días.
+model Zip {
+  id           String    @id @default(uuid())
+  meta         String // JSON cifrado { nombre, ids, opciones }
+  claveSellada String // JSON {epk, iv, ct}: la contraseña sellada con la pública
+  fotos        Int? // lado corto de las fotos (null = original)
+  videos       Int? // lado corto de los videos (null = original)
+  total        Int       @default(0)
+  hechos       Int       @default(0)
+  status       String    @default("en_cola") // en_cola | procesando | lista | error
+  error        String?
+  size         Float     @default(0) // bytes (puede pasar de 2 GB)
+  createdAt    DateTime  @default(now())
+  readyAt      DateTime?
+  expiresAt    DateTime?
+
+  @@index([status, createdAt])
+}

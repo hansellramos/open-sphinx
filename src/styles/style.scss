@@ -145,3 +145,4 @@ body { background-color: #f4f4f8; }
 .nota-texto { white-space: pre-line; padding: .35rem .5rem; border-radius: .375rem; background: var(--cui-tertiary-bg); cursor: text; }
 .presionable { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .fab-seleccionar { position: fixed; right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom)); z-index: 1030; border-radius: 2rem; }
+.zip-clave { font-size: .95rem; letter-spacing: .03em; padding: .3rem .5rem; border-radius: .375rem; background: var(--cui-tertiary-bg); user-select: all; word-break: break-all; }

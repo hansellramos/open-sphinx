@@ -1,11 +1,11 @@
-// Rotación en el init.mp4: leerla y reescribirla (src/lib/rotacion.js), con videos de prueba hechos con ffmpeg.
+// Rotación en el init.mp4: leerla y reescribirla (shared/rotacion.js), con videos de prueba hechos con ffmpeg.
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { leerRotacion, conRotacion, sumarRotacion } from '../../src/lib/rotacion.js'
+import { leerRotacion, conRotacion, sumarRotacion } from '../../shared/rotacion.js'
 
 const dir = mkdtempSync(path.join(tmpdir(), 'boveda-rot-'))
 after(() => rmSync(dir, { recursive: true, force: true }))

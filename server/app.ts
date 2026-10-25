@@ -8,6 +8,7 @@ import bovedaRoutes from './routes/boveda.ts'
 import videoRoutes, { subidas } from './routes/videos.ts'
 import etiquetaRoutes from './routes/etiquetas.ts'
 import exportadosRoutes from './routes/exportados.ts'
+import zipsRoutes from './routes/zips.ts'
 
 const app = express()
 app.disable('x-powered-by')
@@ -18,6 +19,7 @@ app.all(['/api/subidas', '/api/subidas/*splat'], leerSesion, isAuthenticated, su
 
 app.use(sesion)
 
+app.use('/api/zips', express.json({ limit: '25mb' })) // la lista con las claves de cada elemento del ZIP
 app.use(express.json({ limit: '1mb' }))
 app.get('/api/health', (req, res) => res.json({ ok: true }))
 app.use('/api/auth', authRoutes)
@@ -28,6 +30,7 @@ api.use('/boveda', bovedaRoutes)
 api.use('/videos', videoRoutes)
 api.use('/etiquetas', etiquetaRoutes)
 api.use('/exportados', exportadosRoutes)
+api.use('/zips', zipsRoutes)
 app.use('/api', api)
 
 // En producción la API también sirve el frontend compilado (npm run build → dist/).

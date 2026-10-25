@@ -1,10 +1,11 @@
 <script setup>
-// Exportaciones de videos (más pequeños y/o con filtro): de un solo uso, se borran solas a los 7 días. Aquí se
-// ven, se comparten y se borran a mano para no llenar el disco.
+// Exportaciones de videos (más pequeños y/o con filtro) y ZIP con contraseña: de un solo uso, se borran solos a
+// los 7 días. Aquí se ven, se comparten o bajan y se borran a mano para no llenar el disco.
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useBovedaStore } from '@/stores/boveda'
 import { useExportadosStore } from '@/stores/exportados'
+import { useZipsStore } from '@/stores/zips'
 import { useToastStore } from '@/stores/toast'
 import { useCompartir } from '@/lib/compartir'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -14,6 +15,35 @@ import { etiquetaExport, fechaCorta, tamano, venceEn } from '@/lib/formato'
 const router = useRouter()
 const boveda = useBovedaStore()
 const exportados = useExportadosStore()
+const zips = useZipsStore()
+const viendoClave = ref({}) // id → contraseña a la vista
+async function mostrarClave(z) {
+  if (viendoClave.value[z.id]) return (viendoClave.value = { ...viendoClave.value, [z.id]: null })
+  try {
+    viendoClave.value = { ...viendoClave.value, [z.id]: await zips.contrasena(z) }
+  } catch (e) {
+    toast.error(e)
+  }
+}
+async function copiarClave(z) {
+  try {
+    await navigator.clipboard.writeText(viendoClave.value[z.id] ?? (await zips.contrasena(z)))
+    toast.ok('Contraseña copiada')
+  } catch (e) {
+    toast.error(e)
+  }
+}
+const accionZip = (fn, msj) => async (z) => {
+  try {
+    await fn(z)
+    if (msj) toast.ok(msj)
+  } catch (e) {
+    toast.error(e)
+  }
+}
+const reanudarZip = accionZip((z) => zips.reanudar(z), 'Otra vez en cola')
+const borrarZip = accionZip((z) => zips.borrar(z), 'ZIP borrado')
+const opcionesZip = (z) => [z.fotos && `fotos ${z.fotos}p`, z.videos && `videos ${z.videos}p`].filter(Boolean).join(' · ') || 'en original'
 const toast = useToastStore()
 const { progreso, compartir } = useCompartir()
 const compartiendo = ref(null)
@@ -54,7 +84,7 @@ async function compartirE(v, e) {
 
 onMounted(async () => {
   try {
-    await Promise.all([boveda.cargar(), exportados.cargar()])
+    await Promise.all([boveda.cargar(), exportados.cargar(), zips.cargar()])
   } catch (e) {
     toast.error(e)
   }
@@ -62,15 +92,50 @@ onMounted(async () => {
 </script>
 
 <template>
-  <PageHeader title="Exportaciones" :subtitle="`${filas.length} · ${tamano(exportados.ocupado)} en disco · se borran solas a los 7 días`" />
+  <PageHeader title="Exportaciones" :subtitle="`${filas.length + zips.items.length} · ${tamano(exportados.ocupado + zips.ocupado)} en disco · se borran solas a los 7 días`" />
   <div v-if="!exportados.cargada" class="text-center py-5"><CSpinner /></div>
-  <CCard v-else-if="!filas.length" class="text-center py-5">
+
+  <template v-if="zips.items.length">
+    <div class="grupo-mes">ZIP con contraseña</div>
+    <CListGroup class="mb-4">
+      <CListGroupItem v-for="z in zips.items" :key="z.id" class="zip-fila">
+        <div class="d-flex align-items-center gap-3">
+          <CIcon icon="cil-compress" size="xl" class="text-body-secondary flex-shrink-0" />
+          <div class="flex-grow-1 min-w-0">
+            <div class="fw-semibold text-truncate">{{ z.info.nombre }}</div>
+            <div class="small">{{ z.total }} elementos · {{ opcionesZip(z) }}</div>
+            <div class="small text-body-secondary d-flex flex-wrap gap-2 align-items-center">
+              <CBadge :color="COLOR[z.status] ?? 'secondary'">{{ ESTADO[z.status] ?? 'En cola' }}{{ z.status === 'procesando' ? ` ${z.hechos} de ${z.total}` : '' }}</CBadge>
+              <span v-if="z.size">{{ tamano(z.size) }}</span>
+              <span v-if="z.status === 'lista'">{{ venceEn(z.expiresAt) }}</span>
+              <span v-else-if="z.status === 'error'" class="text-danger text-truncate">{{ z.error }}</span>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-1 justify-content-end">
+            <template v-if="z.status === 'lista'">
+              <a class="btn btn-sm btn-primary" :href="`/api/zips/${z.id}/archivo`" download title="Descargar el ZIP"><CIcon icon="cil-cloud-download" /></a>
+              <CButton color="secondary" variant="outline" size="sm" :title="viendoClave[z.id] ? 'Ocultar la contraseña' : 'Ver la contraseña'" @click="mostrarClave(z)"><CIcon icon="cil-lock-locked" /></CButton>
+            </template>
+            <CButton v-if="z.status === 'error'" color="primary" variant="outline" size="sm" @click="reanudarZip(z)"><CIcon icon="cil-media-play" class="me-1" />Reanudar</CButton>
+            <CButton v-if="z.status !== 'procesando'" color="danger" variant="ghost" size="sm" title="Borrar el ZIP" @click="borrarZip(z)"><CIcon icon="cil-trash" /></CButton>
+          </div>
+        </div>
+        <div v-if="viendoClave[z.id]" class="d-flex align-items-center gap-2 mt-2">
+          <code class="zip-clave flex-grow-1">{{ viendoClave[z.id] }}</code>
+          <CButton color="secondary" variant="outline" size="sm" title="Copiar la contraseña" @click="copiarClave(z)"><CIcon icon="cil-copy" /></CButton>
+        </div>
+      </CListGroupItem>
+    </CListGroup>
+    <div v-if="filas.length" class="grupo-mes">Videos</div>
+  </template>
+
+  <CCard v-else-if="exportados.cargada && !filas.length" class="text-center py-5">
     <CCardBody>
       <CIcon icon="cil-share-all" size="3xl" class="text-secondary mb-3" />
-      <p class="mb-0">No hay exportaciones. Se crean desde un video: «Exportar → Nueva…».</p>
+      <p class="mb-0">No hay exportaciones. Se crean desde un video («Exportar → Nueva…») o eligiendo varios en la galería («Seleccionar» → ZIP).</p>
     </CCardBody>
   </CCard>
-  <CListGroup v-else class="mb-4">
+  <CListGroup v-if="exportados.cargada && filas.length" class="mb-4">
     <CListGroupItem v-for="{ e, v } in filas" :key="e.id" class="d-flex align-items-center gap-3">
       <div class="export-mini flex-shrink-0" role="button" @click="router.push(`/ver/${v.id}`)"><Miniatura :item="v" /></div>
       <div class="flex-grow-1 min-w-0">

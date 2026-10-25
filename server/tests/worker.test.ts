@@ -366,6 +366,64 @@ test('reducir al subir: crea la versión de 540p en la fila y al terminar reempl
   assert.equal(m2.reemplazado, undefined)
 })
 
+test('ZIP con contraseña: original, foto y video más pequeños (el video vía exportación), metadatos; sin claves ni nada en claro', async () => {
+  const priv = await nuevaBoveda()
+  const zips = await import('../lib/zips.ts')
+  const clave = async (id) => c.b64u(await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse((await prisma.video.findUniqueOrThrow({ where: { id } })).keyWrap)))
+  const subir = async (uploadId, nombre, crear) => {
+    crear(path.join(paths.subidas, uploadId))
+    await cifrarSubida(uploadId)
+    const v = await prisma.video.create({ data: { originalName: nombre, uploadId } })
+    await procesar(v.id)
+    return (await abrir(priv, v.id))
+  }
+  const vid = await subir('up-zip-v', 'PASEO.MOV', (f) => execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440', '-t', '6', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '30', '-c:a', 'aac', '-f', 'mov', f]))
+  const foto = await subir('up-zip-f', 'FOTO.jpg', (f) => execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1200x900', '-frames:v', '1', '-f', 'image2', '-c:v', 'mjpeg', f]))
+  const datos = Buffer.from('contenido del documento '.repeat(5000))
+  const doc = await subir('up-zip-d', 'informe.pdf', (f) => writeFileSync(f, datos))
+  const password = 'Contraseña-de-prueba-0123456789'
+  const m = zips.manifiestoValido({
+    password,
+    metadatos: JSON.stringify([{ archivo: 'videos/2021-01-01_10-00-00.mp4', nota: 'secreta' }]),
+    items: [
+      { id: vid.listo.id, clave: await clave(vid.listo.id), nombre: 'videos/2021-01-01_10-00-00.mp4', tipo: 'video', alto: 480, duracion: 6 },
+      { id: foto.listo.id, clave: await clave(foto.listo.id), nombre: 'fotos/2021-01-02_10-00-00.jpg', tipo: 'imagen', parts: foto.meta.parts, alto: 720 },
+      { id: doc.listo.id, clave: await clave(doc.listo.id), nombre: 'archivos/informe.pdf', tipo: 'archivo', parts: doc.meta.parts },
+    ],
+  })
+  assert.ok(m, 'manifiesto válido')
+  assert.equal(zips.manifiestoValido({ ...m, items: [{ ...m.items[0], nombre: '../fuera.mp4' }] }), null, 'sin rutas que salgan del ZIP')
+  const z = await prisma.zip.create({ data: { meta: 'cifrado', claveSellada: '{}', total: 3 } })
+  await zips.guardarManifiesto(z.id, m)
+  const { cicloExportacion } = await import('../lib/exportar.ts')
+  assert.equal(await cicloExportacion(), false)
+  assert.equal(await zips.cicloZip(), true)
+  const hecho = await prisma.zip.findUniqueOrThrow({ where: { id: z.id } })
+  assert.equal(hecho.status, 'lista', hecho.error ?? '')
+  assert.equal(hecho.hechos, 3)
+  assert.ok(!existsSync(path.join(paths.claves, `zip-${z.id}.json`)), 'la lista con las claves se borra')
+  assert.deepEqual(readdirSync(paths.claves), [], 'ninguna clave prestada queda en RAM')
+  assert.deepEqual(readdirSync(zips.zipDir()), [`${z.id}.zip`])
+  const exp = await prisma.exportacion.findFirstOrThrow({ where: { videoId: vid.listo.id, alto: 480 } })
+  assert.equal(exp.status, 'lista', 'el video reducido queda también en Exportaciones')
+
+  const zipf = zips.zipArchivo(z.id)
+  assert.ok(!readFileSync(zipf).includes(Buffer.from('contenido del documento')), 'el ZIP va cifrado')
+  const fuera = path.join(dir, 'zip-fuera')
+  execFileSync('mkdir', ['-p', fuera])
+  assert.throws(() => execFileSync('bsdtar', ['-xf', zipf, '--passphrase', 'otra', '-C', fuera], { stdio: 'ignore' }), 'otra contraseña no lo abre')
+  execFileSync('bsdtar', ['-xf', zipf, '--passphrase', password, '-C', fuera])
+  assert.ok(readFileSync(path.join(fuera, 'archivos/informe.pdf')).equals(datos), 'el archivo, idéntico')
+  assert.equal(dimensiones(path.join(fuera, 'fotos/2021-01-02_10-00-00.jpg')), 'mjpeg,960,720')
+  const mp4 = path.join(fuera, 'videos/2021-01-01_10-00-00.mp4')
+  assert.equal(dimensiones(mp4), 'h264,854,480')
+  const d = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).toString())
+  assert.ok(Math.abs(d - 6) < 0.6, `duración ${d}`)
+  assert.equal(JSON.parse(readFileSync(path.join(fuera, 'metadatos.json'), 'utf8'))[0].nota, 'secreta')
+  await zips.borrarZip(z.id)
+  assert.ok(!existsSync(zipf))
+})
+
 test('captura PNG grande (sin EXIF): se procesa; si el worker se cayó justo después, se marca lista sin reprocesar', async () => {
   const priv = await nuevaBoveda()
   const uploadId = 'up-captura'

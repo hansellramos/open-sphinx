@@ -15,6 +15,7 @@ import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import AlbumModal from '@/components/elementos/AlbumModal.vue'
 import AlbumElegirModal from '@/components/elementos/AlbumElegirModal.vue'
 import EdicionMasivaModal from '@/components/elementos/EdicionMasivaModal.vue'
+import ZipModal from '@/components/elementos/ZipModal.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
 import { ESTADOS, dia, fecha, fechaCorta, iconoArchivo, mesAnio, rangoFechas, tamano } from '@/lib/formato'
 
@@ -196,6 +197,11 @@ function terminarSeleccion() {
 const albumes = ref(null) // ids para el selector de álbumes
 const masiva = ref(null) // fecha | etiquetas (a los elegidos)
 const ubicandoVarios = ref(false)
+const haciendoZip = ref(false)
+const zipListo = () => {
+  haciendoZip.value = false
+  terminarSeleccion()
+}
 const borrandoVarios = ref(null) // progreso (null = preguntando)
 const preguntandoBorrar = ref(false)
 const borrarVarios = accion(async () => {
@@ -508,6 +514,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
         <CButton color="secondary" variant="outline" :disabled="!nSel || progresoCompartir !== null" title="Compartir los elegidos" @click="compartirElegidos">
           <CIcon icon="cil-share-boxed" /><span v-if="progresoCompartir !== null" class="small ms-1">{{ progresoCompartir }}%</span>
         </CButton>
+        <CButton color="secondary" variant="outline" :disabled="!nSel" title="ZIP con contraseña de los elegidos" @click="haciendoZip = true"><CIcon icon="cil-compress" class="me-1" />ZIP</CButton>
         <CButton color="danger" variant="outline" :disabled="!nSel" title="Borrar los elegidos" @click="preguntandoBorrar = true"><CIcon icon="cil-trash" /></CButton>
         <CButton color="primary" :disabled="!nSel" @click="albumes = idsSel"><CIcon icon="cil-library" class="me-1" />Álbumes…</CButton>
       </template>
@@ -532,6 +539,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
       <CButton color="danger" :disabled="borrandoVarios !== null" @click="borrarVarios">Borrar {{ nSel }}</CButton>
     </CModalFooter>
   </CModal>
+  <ZipModal :visible="haciendoZip" :items="elegidos" :nombre="titulo" @close="haciendoZip = false" @listo="zipListo" />
   <EdicionMasivaModal :modo="masiva" :items="elegidos" @close="masiva = null" @listo="masivaLista" />
   <UbicacionModal :visible="ubicandoVarios" :items="ubicables" @close="ubicandoVarios = false" @save="ubicarVarios" />
   <AlbumModal :visible="!!nuevoAlbum" :ids="nuevoAlbum?.ids ?? []" @close="nuevoAlbum = null" @save="crearAlbum" />
