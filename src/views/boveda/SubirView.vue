@@ -9,7 +9,7 @@ import { useToastStore } from '@/stores/toast'
 import { useBovedaStore } from '@/stores/boveda'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import { duracion, tamano } from '@/lib/formato'
+import { duracion, fecha, tamano } from '@/lib/formato'
 
 const router = useRouter()
 const subidas = useSubidasStore()
@@ -160,6 +160,7 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
         <CIcon icon="cil-calendar" class="text-body-secondary" />
         <input type="datetime-local" class="form-control form-control-sm subir-fecha" :value="it.fecha ?? ''" aria-label="Fecha" @change="subidas.cambiar(it, { fecha: $event.target.value })" />
         <span v-if="it.fecha && !it.manual" class="text-body-secondary">del nombre</span>
+        <span v-else-if="!it.fecha && it.archivo" class="text-body-secondary">la de la foto, o la del archivo: {{ fecha(it.archivo) }}</span>
         <span v-else-if="!it.fecha" class="text-body-secondary">la de la foto, o la de hoy</span>
         <select v-if="it.video" class="form-select form-select-sm subir-reducir-item" :value="it.reducir ?? ''" aria-label="Reducir este video" @change="subidas.cambiar(it, { reducir: Number($event.target.value) || null })">
           <option v-for="[v, txt] in REDUCIR_CORTO" :key="String(v)" :value="v ?? ''">{{ txt }}</option>

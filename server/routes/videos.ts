@@ -35,8 +35,6 @@ const tus = new TusServer({
       },
     })
     console.log(`[subida] ${((upload.size ?? 0) / 1e6).toFixed(1)} MB → ${video.id} en cola`)
-    const mod = Number(upload.metadata?.modificado) // TEMPORAL (diagnóstico de fechas)
-    console.log(`[fecha-diag] ${video.id}: el navegador dice modificado=${Number.isFinite(mod) && mod > 0 ? new Date(mod).toISOString() : 'nada'}`)
     return {}
   },
 })

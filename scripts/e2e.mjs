@@ -326,6 +326,27 @@ try {
   await page.getByText('Tomada el 2 de enero de 2018').waitFor()
   await page.getByText('IMG-20190305-WA0001').first().waitFor() // el nombre, en los detalles
   paso('WhatsApp: fecha del nombre; fecha y etiqueta cambiadas durante la subida y fecha cambiada en el detalle')
+
+  // Foto sin EXIF ni fecha en el nombre (guardada de WhatsApp en el iPhone): se usa la fecha del archivo.
+  const sinExif = path.join(dir, 'sin-exif.jpg')
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x240', '-frames:v', '1', sinExif])
+  await page.goto(`${base}/#/subir`)
+  await page.evaluate(async (b64) => {
+    const f = new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], 'a7f25017.jpeg', { type: 'image/jpeg', lastModified: Date.parse('2020-10-26T03:55:54Z') })
+    const dt = new DataTransfer()
+    dt.items.add(f)
+    const i = document.querySelector('input[type=file]')
+    i.files = dt.files
+    i.dispatchEvent(new Event('change', { bubbles: true }))
+  }, readFileSync(sinExif).toString('base64'))
+  const filaSin = page.locator('.card', { hasText: 'a7f25017' })
+  await filaSin.getByText(/la del archivo: 25 .*oct.* 2020/).waitFor()
+  await filaSin.getByText('Subido · en cola').waitFor({ timeout: 60000 })
+  await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
+  await page.locator('.video-card', { hasText: '25 de oct de 2020' }).click({ timeout: 60000 })
+  await page.getByText(/Tomada el 25 de octubre de 2020/).waitFor()
+  await page.getByText('(del archivo)').waitFor()
+  paso('foto sin EXIF ni fecha en el nombre: toma la fecha del archivo (como lo guardado de WhatsApp en el iPhone)')
   await page.goto(`${base}/#/galeria`)
   await page.getByRole('button', { name: 'Filtros' }).click()
   await page.getByRole('button', { name: /^WhatsApp/ }).click()

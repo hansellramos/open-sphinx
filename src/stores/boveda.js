@@ -125,6 +125,8 @@ export const useBovedaStore = defineStore('boveda', () => {
         m.tags = [...new Set([...(m.tags ?? []), ...nuevas])]
         // La fecha elegida a mano manda; la sacada del nombre solo si la foto no traía una propia (EXIF).
         if (extra.takenAt && (extra.manual || !m.takenAt)) m.takenAt = extra.takenAt
+        // Si no hay ninguna, la del archivo según el navegador (p. ej. lo guardado de WhatsApp en el iPhone).
+        if (!m.takenAt && extra.archivo) Object.assign(m, { takenAt: extra.archivo, fechaOrigen: 'archivo' })
         if (extra.title) m.title = extra.title
         await guardarMeta(v, m, true)
       } catch (e) {
@@ -147,6 +149,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   async function aplicarAjuste(v, a) {
     const cambios = { tags: await etiquetasPara(a.tags ?? []) }
     if (a.takenAt && (a.manual || !v.m.takenAt)) cambios.takenAt = a.takenAt
+    else if (a.archivo && !v.m.takenAt) Object.assign(cambios, { takenAt: a.archivo, fechaOrigen: 'archivo' })
     if (a.title) cambios.title = a.title
     return guardarMeta(v, cambios)
   }

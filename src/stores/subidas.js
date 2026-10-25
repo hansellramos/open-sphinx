@@ -15,6 +15,13 @@ import { api } from '@/services/api'
 const PEDAZO = 8 * 1024 * 1024
 let seq = 0
 
+// Fecha del archivo según el navegador (lastModified). El iPhone a veces pone ahí la fecha que muestra Fotos (útil
+// para lo guardado de WhatsApp, que no trae EXIF); otras veces la de ahora, que no sirve. Respaldo si no hay otra.
+function fechaArchivo(f) {
+  const t = Number(f.lastModified)
+  return Number.isFinite(t) && t > 0 && Date.now() - t > 10 * 60_000 ? new Date(t).toISOString() : null
+}
+
 // Reducir videos al subirlos (lado corto 720 o 540; null = dejar el original). Se recuerda en este navegador.
 const esVideo = (f) => f.type?.startsWith('video/') || /\.(mov|mp4|m4v|mkv|webm|avi|3gp)$/i.test(f.name)
 function leerReducir() {
@@ -52,7 +59,7 @@ export const useSubidasStore = defineStore('subidas', () => {
     for (const file of files)
       items.value.push({
         id: ++seq, file, nombre: file.name, tam: file.size, progreso: 0, estado: 'revisando', error: null,
-        tags: [...etiquetas.value], fecha: fechaDelNombre(file.name), manual: false, titulo: null, sha: null, igual: null,
+        tags: [...etiquetas.value], fecha: fechaDelNombre(file.name), manual: false, titulo: null, sha: null, igual: null, archivo: fechaArchivo(file),
         video: esVideo(file), reducir: esVideo(file) ? reducir.value : null,
       })
     revisar()
@@ -108,8 +115,7 @@ export const useSubidasStore = defineStore('subidas', () => {
       chunkSize: 32 * 1024 * 1024,
       retryDelays: [0, 1000, 3000, 5000, 10000, 30000],
       removeFingerprintOnSuccess: true,
-      // modificado: TEMPORAL (diagnóstico de fechas): la fecha que el navegador dice que tiene el archivo.
-      metadata: { filename: it.nombre, filetype: it.file.type || '', ...(extra && { extra }), ...(it.reducir && { reducir: String(it.reducir) }), modificado: String(it.file.lastModified ?? '') },
+      metadata: { filename: it.nombre, filetype: it.file.type || '', ...(extra && { extra }), ...(it.reducir && { reducir: String(it.reducir) }) },
       onProgress: (sent, total) => {
         it.progreso = Math.round((sent / total) * 1000) / 10
         medir(it, sent, total)
@@ -163,6 +169,7 @@ export const useSubidasStore = defineStore('subidas', () => {
     const datos = {}
     if (it.tags.length) datos.tags = await boveda.etiquetasPara(it.tags)
     if (it.fecha) Object.assign(datos, { takenAt: deLocal(it.fecha), manual: it.manual })
+    else if (it.archivo) datos.archivo = it.archivo // solo si la foto no trae la suya (EXIF)
     if (it.titulo) datos.title = it.titulo
     return datos
   }
@@ -186,7 +193,7 @@ export const useSubidasStore = defineStore('subidas', () => {
         it.ajustePendiente = true
         return
       }
-      if (it.sha) await boveda.ajustarPorHuella(it.sha, { tags: it.tags, takenAt: deLocal(it.fecha), manual: it.manual, ...(it.titulo && { title: it.titulo }) })
+      if (it.sha) await boveda.ajustarPorHuella(it.sha, { tags: it.tags, takenAt: deLocal(it.fecha), manual: it.manual, archivo: it.fecha ? null : it.archivo, ...(it.titulo && { title: it.titulo }) })
     } catch (e) {
       console.warn('No se pudo guardar el cambio', e)
     }

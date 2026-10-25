@@ -159,7 +159,7 @@ function cambiarFecha() {
 }
 const guardarFecha = accion(async () => {
   if (!nuevaFecha.value) return
-  await boveda.guardarMeta(item.value, { takenAt: deLocal(nuevaFecha.value) })
+  await boveda.guardarMeta(item.value, { takenAt: deLocal(nuevaFecha.value), fechaOrigen: undefined })
   cambiandoFecha.value = false
   toast.ok('Fecha guardada')
 })
@@ -415,7 +415,7 @@ onBeforeUnmount(() => {
         <CButton color="secondary" variant="ghost" size="sm" @click="cambiandoFecha = false">Cancelar</CButton>
       </form>
       <div v-else class="mb-1">
-        <CIcon icon="cil-calendar" class="me-2 text-body-secondary" />{{ m.takenAt ? `${etiquetaFecha} el ${fechaHora(m.takenAt)}` : `Subido el ${fechaHora(item.createdAt)}` }}
+        <CIcon icon="cil-calendar" class="me-2 text-body-secondary" />{{ m.takenAt ? `${etiquetaFecha} el ${fechaHora(m.takenAt)}` : `Subido el ${fechaHora(item.createdAt)}` }}<span v-if="m.takenAt && m.fechaOrigen === 'archivo'" class="text-body-secondary" title="La foto no traía fecha: es la del archivo según el iPhone"> (del archivo)</span>
         <CButton color="link" size="sm" class="py-0" title="Cambiar la fecha" aria-label="Cambiar la fecha" @click="cambiarFecha">Cambiar</CButton>
       </div>
       <div v-if="tipo !== 'archivo'" class="mb-1">
