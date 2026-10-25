@@ -16,6 +16,7 @@ const fijos = computed(() => [
   { to: '/etiquetas', name: 'Etiquetas', icon: 'cil-tags', n: boveda.etiquetas.length },
   { to: '/mapa', name: 'Mapa', icon: 'cil-map' },
   { to: '/subir', name: 'Subir', icon: 'cil-cloud-upload' },
+  { to: '/cola', name: 'Cola', icon: 'cil-av-timer', n: boveda.pendientes.length },
   { to: '/exportados', name: 'Exportaciones', icon: 'cil-share-all' },
 ])
 const activo = (to) => route.path === to || (['/etiquetas', '/albumes'].includes(to) && route.path.startsWith(`${to}/`))

@@ -165,11 +165,9 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
 
   // Tamaño que se ve (con la rotación del celular aplicada), leído del inicio del video en memoria.
   const sondeo = JSON.parse(
-    await conStdin('ffprobe', ['-v', 'error', '-f', 'mp4', '-i', 'pipe:0', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,r_frame_rate,avg_frame_rate,time_base:stream_side_data=rotation', '-of', 'json'], fragmentos(0, 1)),
+    await conStdin('ffprobe', ['-v', 'error', '-f', 'mp4', '-i', 'pipe:0', '-select_streams', 'v:0', '-show_entries', 'stream=width,height:stream_side_data=rotation', '-of', 'json'], fragmentos(0, 1)),
   )
   const st = sondeo.streams?.[0]
-  console.log(`[fps-diag] exportación ${e.id}: entra ${st?.r_frame_rate} nominal, ${st?.avg_frame_rate} promedio, base ${st?.time_base} (visto en el primer fragmento)`)
-  const cuadros: Record<string, number> = {}
   if (!st?.width) throw new Error('No se pudo leer el tamaño del video')
   const rot = Math.abs(Number(st.side_data_list?.find((d) => 'rotation' in d)?.rotation ?? 0)) % 180 === 90
   const [w, h] = rot ? [st.height, st.width] : [st.width, st.height]
@@ -239,17 +237,11 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
       ],
       fragmentos(k),
       (linea) => {
-        // TEMPORAL (diagnóstico de cuadros por segundo): lo que ffmpeg repitió o descartó.
-        for (const k of ['frame', 'dup_frames', 'drop_frames']) {
-          const x = [...linea.matchAll(new RegExp(`^${k}=(\\d+)`, 'gm'))].at(-1)?.[1]
-          if (x) cuadros[k] = Number(x)
-        }
         const us = /out_time_us=(\d+)/.exec(linea)?.[1]
         if (us) progreso(hecho + Number(us) / 1e6)
       },
     )
     await c.terminar()
-    console.log(`[fps-diag] exportación ${e.id}: salieron ${cuadros.frame} cuadros, repetidos ${cuadros.dup_frames}, descartados ${cuadros.drop_frames}${hecho ? ` (desde ${hecho.toFixed(1)} s)` : ''}`)
   } catch (err) {
     await c.parar()
     throw err

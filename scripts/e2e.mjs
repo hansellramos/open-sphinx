@@ -155,7 +155,7 @@ try {
   if ((await miniFoto.getAttribute('class'))?.includes('difuminada') === antes) throw new Error('la miniatura de Subir no sigue el switch de difuminar')
   await page.locator('#difuminar').click()
   if (await page.locator('.card', { hasText: 'notas-secretas' }).locator('.subir-mini img').count()) throw new Error('la nota no debería tener miniatura')
-  await page.waitForFunction(() => [...document.querySelectorAll('.card')].filter((c) => c.innerText.includes('Subido · en cola')).length === 2, null, { timeout: 60000 })
+  await page.waitForFunction(() => [...document.querySelectorAll('.card')].filter((c) => c.innerText.includes('Subido · ')).length === 2, null, { timeout: 60000 })
   await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
   await page.waitForFunction(() => document.querySelectorAll('.video-card').length === 2, null, { timeout: 60000 })
   await page.locator('.video-card .badge', { hasText: 'WhatsApp' }).waitFor({ timeout: 30000 })
@@ -294,13 +294,13 @@ try {
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
   })
   await page.getByRole('button', { name: 'Pegar', exact: true }).click()
-  await page.locator('.card', { hasText: /pegado-.*\.png/ }).getByText('Subido · en cola').waitFor({ timeout: 30000 })
+  await page.locator('.card', { hasText: /pegado-.*\.png/ }).getByText(/^Subido · /).waitFor({ timeout: 30000 })
   await page.locator('.zona-pegar').evaluate((z) => {
     const dt = new DataTransfer()
     dt.items.add(new File(['%PDF-1.4 prueba'], 'factura.pdf', { type: 'application/pdf' }))
     z.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
   })
-  await page.locator('.card', { hasText: 'factura.pdf' }).getByText('Subido · en cola').waitFor({ timeout: 30000 })
+  await page.locator('.card', { hasText: 'factura.pdf' }).getByText(/^Subido · /).waitFor({ timeout: 30000 })
   await page.locator('.zona-pegar').evaluate((z) => {
     const dt = new DataTransfer()
     dt.setData('text/plain', 'clave del wifi: 1234')
@@ -308,7 +308,7 @@ try {
   })
   await page.getByLabel('Nombre de la nota').fill('wifi')
   await page.getByRole('button', { name: 'Guardar como nota' }).click()
-  await page.locator('.card', { hasText: 'wifi.txt' }).getByText('Subido · en cola').waitFor({ timeout: 30000 })
+  await page.locator('.card', { hasText: 'wifi.txt' }).getByText(/^Subido · /).waitFor({ timeout: 30000 })
   await page.locator('.sidebar a', { hasText: 'Archivos' }).click()
   await page.waitForFunction(() => document.querySelectorAll('.archivo-fila').length === 3, null, { timeout: 60000 })
   paso('pegar: imagen con el botón, archivo desde el portapapeles y texto como nota')
@@ -319,7 +319,7 @@ try {
   const filaWa = page.locator('.card', { hasText: 'IMG-20190305-WA0001' })
   await filaWa.getByText('del nombre').waitFor()
   if ((await filaWa.locator('input[type=datetime-local]').inputValue()) !== '2019-03-05T12:00') throw new Error('no sacó la fecha del nombre')
-  await filaWa.getByText('Subido · en cola').waitFor({ timeout: 60000 })
+  await filaWa.getByText(/^Subido · /).waitFor({ timeout: 60000 })
   await filaWa.locator('input[type=datetime-local]').fill('2019-03-06T08:30')
   await filaWa.getByTitle('Etiquetas de este archivo').click()
   const campoWa = filaWa.getByPlaceholder('Escribe y Enter…')
@@ -349,7 +349,7 @@ try {
   }, readFileSync(sinExif).toString('base64'))
   const filaSin = page.locator('.card', { hasText: 'a7f25017' })
   await filaSin.getByText(/la del archivo: 25 .*oct.* 2020/).waitFor()
-  await filaSin.getByText('Subido · en cola').waitFor({ timeout: 60000 })
+  await filaSin.getByText(/^Subido · /).waitFor({ timeout: 60000 })
   await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
   await page.locator('.video-card', { hasText: '25 de oct de 2020' }).click({ timeout: 60000 })
   await page.getByText(/Tomada el 25 de octubre de 2020/).waitFor()
@@ -368,7 +368,7 @@ try {
   // Video vertical: se ve de pie (el reproductor gira el <video>), Rotar lo gira 90° más, persiste y se comparte así.
   await page.goto(`${base}/#/subir`)
   await page.locator('input[type=file]').setInputFiles([vertical])
-  await page.locator('.card', { hasText: 'vertical' }).getByText('Subido · en cola').waitFor({ timeout: 60000 })
+  await page.locator('.card', { hasText: 'vertical' }).getByText(/^Subido · /).waitFor({ timeout: 60000 })
   await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
   await page.locator('.video-card', { hasText: '1 de may de 2020' }).click({ timeout: 60000 })
   await page.waitForURL(/#\/ver\/[0-9a-f-]+/)
@@ -476,7 +476,7 @@ try {
   const tarjeta = page.locator('.card', { hasText: 'PESADO' })
   if ((await tarjeta.locator('.subir-reducir-item').inputValue()) !== '540') throw new Error('el archivo no tomó «reducir a 540p»')
   await tarjeta.locator('.subir-mini img.difuminada').waitFor() // miniatura del video, difuminada (tras desbloquear)
-  await tarjeta.getByText('Subido · en cola').waitFor({ timeout: 60000 })
+  await tarjeta.getByText(/^Subido · /).waitFor({ timeout: 60000 })
   await page.goto(`${base}/#/galeria`)
   await page.locator('.video-card', { hasText: '2019' }).click({ timeout: 30000 })
   for (let i = 0; i < 60 && !(await page.getByText('960×540 · H264').count()); i++) {
@@ -643,7 +643,7 @@ try {
   await filaNota.getByTitle('Nota de este archivo').click()
   await filaNota.getByLabel('Nota de este archivo').fill('Cumpleaños de la abuela')
   await filaNota.getByLabel('Nota de este archivo').blur()
-  await filaNota.getByText('Subido · en cola').waitFor({ timeout: 60000 })
+  await filaNota.getByText(/^Subido · /).waitFor({ timeout: 60000 })
   await page.getByRole('button', { name: 'Cambiar' }).first().click() // quitar el álbum para lo que siga
   await page.locator('.modal').getByLabel(/Desde el detalle/).uncheck()
   await page.locator('.modal').getByRole('button', { name: 'Guardar' }).click()
@@ -773,6 +773,22 @@ try {
   if (await page.getByText('2 elegidos').count()) throw new Error('tras borrar debería salir del modo selección')
   paso('borrar desde el detalle (pasa al siguiente) y varios a la vez desde Seleccionar')
   await page.getByTitle('Tarjetas').click() // como estaba
+
+  // Cola: una subida a medias (de «otro dispositivo») aparece en Recibiendo con su avance; nada pendiente en la galería.
+  const ubic = await page.evaluate(async () => {
+    const r = await fetch('/api/subidas', { method: 'POST', credentials: 'include', headers: { 'Tus-Resumable': '1.0.0', 'Upload-Length': '1000000', 'Upload-Metadata': `filename ${btoa('desde-el-pc.mov')}` } })
+    const loc = r.headers.get('Location')
+    await fetch(loc, { method: 'PATCH', credentials: 'include', headers: { 'Tus-Resumable': '1.0.0', 'Upload-Offset': '0', 'Content-Type': 'application/offset+octet-stream' }, body: new Uint8Array(300000) })
+    return loc
+  })
+  await page.locator('.sidebar a', { hasText: 'Cola' }).click()
+  const filaCola = page.locator('.cola-fila', { hasText: 'desde-el-pc.mov' })
+  await filaCola.getByText('30%').waitFor()
+  await filaCola.getByText(/293 KB de 977 KB/).waitFor()
+  await page.getByText('Recibiendo (1)').waitFor()
+  await page.evaluate((loc) => fetch(loc, { method: 'DELETE', credentials: 'include', headers: { 'Tus-Resumable': '1.0.0' } }), ubic)
+  await page.getByText('No hay nada en cola').waitFor({ timeout: 20000 })
+  paso('Cola: lo que se está recibiendo (de cualquier dispositivo) con su avance; vacía cuando todo está cifrado')
 
   // Migración de un video del MVP (título y etiqueta sin cifrar en la base).
   const Database = (await import('better-sqlite3')).default

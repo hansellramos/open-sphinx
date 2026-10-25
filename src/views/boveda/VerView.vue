@@ -20,7 +20,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
 import { useExportadosStore } from '@/stores/exportados'
-import { decryptBlob } from '@shared/crypto.js'
+import { decryptBlob, encryptBlob } from '@shared/crypto.js'
 import { aLocal, deLocal, duracion, extension, fechaCorta, fechaHora, iconoArchivo, tamano, venceEn, vistaPrevia, etiquetaExport } from '@/lib/formato'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
@@ -267,6 +267,38 @@ const estiloVideo = computed(() =>
 function medirVideo() {
   codificado.value = { w: el.value.videoWidth, h: el.value.videoHeight }
   sincronizar()
+  reponerMiniatura().catch((e) => console.warn('No se pudo reponer la miniatura', e))
+}
+
+// Un video que quedó sin miniatura (p. ej. la NAS no pudo sacarla): se saca aquí de un cuadro cercano al segundo 1,
+// derecha según el giro del archivo, se cifra con la clave del video y se sube. Solo si no se está reproduciendo.
+const intentadas = new Set()
+async function reponerMiniatura() {
+  const v = el.value, it = item.value
+  if (!v || viendoExp.value || intentadas.has(it.id) || !v.paused || v.currentTime > 0) return
+  intentadas.add(it.id)
+  if (await boveda.thumbUrl(it)) return
+  const esperar = (ev) => new Promise((ok) => v.addEventListener(ev, ok, { once: true }))
+  if (v.readyState < 2) await esperar('loadeddata')
+  const t = Math.min(1, (v.duration || 2) / 2)
+  if (t > 0.05) {
+    v.currentTime = t
+    await esperar('seeked')
+  }
+  const g = ((rotInit.value % 360) + 360) % 360
+  const k = Math.min(1, 640 / (g % 180 ? v.videoHeight : v.videoWidth))
+  const w = Math.round(v.videoWidth * k), h = Math.round(v.videoHeight * k)
+  const c = Object.assign(document.createElement('canvas'), g % 180 ? { width: h, height: w } : { width: w, height: h })
+  const ctx = c.getContext('2d')
+  ctx.translate(c.width / 2, c.height / 2)
+  ctx.rotate((g * Math.PI) / 180)
+  ctx.drawImage(v, -w / 2, -h / 2, w, h)
+  if (v.paused && v.currentTime === t) v.currentTime = 0
+  const jpeg = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.8))
+  if (!jpeg) return
+  const cifrado = await encryptBlob(await auth.claveDe(it), new Uint8Array(await jpeg.arrayBuffer()))
+  const res = await fetch(`/api/videos/${it.id}/miniatura`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/octet-stream' }, body: cifrado })
+  if (res.ok) boveda.olvidarMiniatura(it.id)
 }
 function sincronizar() {
   const v = el.value

@@ -120,6 +120,18 @@ async function crearAlbum(datos) {
   }
 }
 
+// Ya subido: cómo va en la NAS (la cola de cifrado). Siempre empieza con «Subido · ».
+const idSubida = (it) => it.upload?.url?.split('/').pop()
+function enNas(it) {
+  if (it.sha && boveda.huellas.get(it.sha)) return 'Subido · ya está cifrado en la bóveda'
+  const v = boveda.items.find((x) => x.uploadId && x.uploadId === idSubida(it))
+  if (v?.status === 'procesando') return `Subido · cifrando en la NAS ${v.progreso ?? 0}%`
+  if (v?.status === 'error') return `Subido · error al cifrar: ${v.error}`
+  const fila = boveda.items.filter((x) => x.status === 'en_cola').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+  const pos = v ? fila.indexOf(v) + 1 : 0
+  return `Subido · en cola para cifrar${pos ? ` (${pos}º)` : ''}`
+}
+
 const REDUCIR = [[null, 'Dejar el original'], [720, 'Reducir a 720p y reemplazar el original'], [540, 'Reducir a 540p y reemplazar el original']]
 const REDUCIR_CORTO = [[null, 'Original'], [720, 'Reducir a 720p'], [540, 'Reducir a 540p']]
 const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', listo: 'success', error: 'danger', duplicado: 'warning' }
@@ -130,6 +142,19 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
     <CButton v-if="subidas.items.some((i) => i.estado === 'listo' || i.estado === 'duplicado')" color="secondary" variant="outline" @click="subidas.limpiarListos()">Limpiar terminados</CButton>
     <CButton color="primary" variant="outline" @click="router.push('/galeria')">Ir a la galería</CButton>
   </PageHeader>
+
+  <CCard v-if="subidas.resumen.n" class="mb-3">
+    <CCardBody class="py-2">
+      <div class="d-flex flex-wrap align-items-center gap-2 small mb-1">
+        <strong v-if="subidas.activa">Subiendo {{ subidas.resumen.actual }} de {{ subidas.resumen.n }}</strong>
+        <strong v-else>Subidos {{ subidas.resumen.listos }} de {{ subidas.resumen.n }}</strong>
+        <span class="text-body-secondary">· {{ subidas.resumen.pct }}%</span>
+        <span v-if="subidas.resumen.errores" class="text-danger">· {{ subidas.resumen.errores }} con error</span>
+        <RouterLink to="/cola" class="ms-auto text-decoration-none">Ver la cola de cifrado →</RouterLink>
+      </div>
+      <CProgress :value="subidas.resumen.pct" height="6" />
+    </CCardBody>
+  </CCard>
 
   <div class="mb-3">
     <div class="small text-body-secondary mb-1">Etiquetas para lo que subas (opcional)</div>
@@ -206,7 +231,7 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
           <RouterLink v-if="it.igual?.id" :to="`/ver/${it.igual.id}`">{{ it.igual.title }}</RouterLink>
           <span v-else>{{ it.igual?.title }} (en esta misma subida)</span>
         </template>
-        <template v-else>{{ { revisando: `Revisando si ya está… ${it.progreso}%`, subiendo: `${it.progreso}%${it.velocidad ? ` · ${tamano(it.velocidad)}/s${it.restante != null ? ` · faltan ${duracion(it.restante)}` : ''}` : ''}`, listo: 'Subido · en cola para cifrar', error: it.error }[it.estado] ?? 'Esperando' }}</template>
+        <template v-else>{{ { revisando: `Revisando si ya está… ${it.progreso}%`, subiendo: `${it.progreso}%${it.velocidad ? ` · ${tamano(it.velocidad)}/s${it.restante != null ? ` · faltan ${duracion(it.restante)}` : ''}` : ''}`, listo: enNas(it), error: it.error }[it.estado] ?? 'Esperando' }}</template>
       </div>
       <!-- Fecha y etiquetas de este archivo: se pueden cambiar sin esperar a que termine -->
       <div v-if="it.estado !== 'duplicado'" class="d-flex flex-wrap align-items-center gap-2 mt-2 small">

@@ -59,6 +59,7 @@ model Video {
   segments     Int?
   keyWrap      String? // JSON {epk, iv, ct}: clave del video sellada con la clave pública
   extra        String? // JSON sellado por el navegador al subir (etiquetas); el worker lo mete en meta y lo borra
+  progreso     Int       @default(0) // mientras se procesa (0–100), para mostrar el avance
   reducir      Int? // elegido al subir: al procesarlo se crea una versión con este lado corto (720, 540) que lo reemplaza
   createdAt    DateTime  @default(now())
   readyAt      DateTime?

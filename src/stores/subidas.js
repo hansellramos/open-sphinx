@@ -90,6 +90,14 @@ export const useSubidasStore = defineStore('subidas', () => {
     } catch {}
   })
   const activa = computed(() => items.value.some((i) => i.estado === 'subiendo'))
+  // «Subiendo 3 de 10 · 27%»: por bytes, sin contar los duplicados.
+  const resumen = computed(() => {
+    const vs = items.value.filter((i) => i.estado !== 'duplicado')
+    const total = vs.reduce((t, i) => t + (i.tam || 0), 0)
+    const enviado = vs.reduce((t, i) => t + ((i.tam || 0) * (i.estado === 'listo' ? 100 : i.estado === 'subiendo' ? i.progreso : 0)) / 100, 0)
+    const listos = vs.filter((i) => i.estado === 'listo').length
+    return { n: vs.length, listos, actual: Math.min(vs.length, listos + 1), pct: total ? Math.floor((enviado / total) * 100) : 0, errores: vs.filter((i) => i.estado === 'error').length }
+  })
   let revisando = false
 
   function agregar(files) {
@@ -303,5 +311,5 @@ export const useSubidasStore = defineStore('subidas', () => {
     if (activa.value) e.preventDefault()
   })
 
-  return { items, etiquetas, reducir, albumes, activa, agregar, cambiar, reintentar, subirIgual, cancelar, limpiarListos }
+  return { items, etiquetas, reducir, albumes, activa, resumen, agregar, cambiar, reintentar, subirIgual, cancelar, limpiarListos }
 })

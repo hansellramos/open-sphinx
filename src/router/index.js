@@ -23,6 +23,7 @@ const routes = [
       { path: 'videos', redirect: (to) => ({ path: '/galeria', query: to.query }) },
       { path: 'videos/:id', redirect: (to) => `/ver/${to.params.id}` },
       { path: 'exportados', name: 'Exportados', component: () => import('@/views/boveda/ExportadosView.vue') },
+      { path: 'cola', name: 'Cola', component: () => import('@/views/boveda/ColaView.vue') },
       { path: 'subir', name: 'Subir', component: () => import('@/views/boveda/SubirView.vue') },
       { path: 'ajustes', name: 'Ajustes', component: () => import('@/views/ajustes/AjustesView.vue') },
     ],

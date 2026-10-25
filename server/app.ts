@@ -9,6 +9,7 @@ import videoRoutes, { subidas } from './routes/videos.ts'
 import etiquetaRoutes from './routes/etiquetas.ts'
 import exportadosRoutes from './routes/exportados.ts'
 import zipsRoutes from './routes/zips.ts'
+import colaRoutes from './routes/cola.ts'
 
 const app = express()
 app.disable('x-powered-by')
@@ -31,6 +32,7 @@ api.use('/videos', videoRoutes)
 api.use('/etiquetas', etiquetaRoutes)
 api.use('/exportados', exportadosRoutes)
 api.use('/zips', zipsRoutes)
+api.use('/cola', colaRoutes)
 app.use('/api', api)
 
 // En producción la API también sirve el frontend compilado (npm run build → dist/).

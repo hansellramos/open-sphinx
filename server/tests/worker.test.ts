@@ -56,6 +56,7 @@ for (const codec of ['libx264', 'libx265']) {
 
     const listo = await prisma.video.findUniqueOrThrow({ where: { id: v.id } })
     assert.equal(listo.status, 'listo')
+    assert.equal(listo.progreso, 100, 'el avance termina en 100')
     assert.equal(listo.originalName, null, 'el nombre en claro se borra')
     assert.ok(listo.segments >= 3)
     assert.ok(!existsSync(input) && !existsSync(`${input}.json`), 'borra la subida sin cifrar')

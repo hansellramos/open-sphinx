@@ -8,7 +8,6 @@ import { useCompartir } from '@/lib/compartir'
 import { useRoute, useRouter } from 'vue-router'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
-import { api } from '@/services/api'
 import PageHeader from '@/components/common/PageHeader.vue'
 import Miniatura from '@/components/elementos/Miniatura.vue'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
@@ -17,7 +16,7 @@ import AlbumElegirModal from '@/components/elementos/AlbumElegirModal.vue'
 import EdicionMasivaModal from '@/components/elementos/EdicionMasivaModal.vue'
 import ZipModal from '@/components/elementos/ZipModal.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
-import { ESTADOS, dia, fecha, fechaCorta, iconoArchivo, mesAnio, rangoFechas, tamano } from '@/lib/formato'
+import { dia, fecha, fechaCorta, iconoArchivo, mesAnio, rangoFechas, tamano } from '@/lib/formato'
 
 const route = useRoute()
 const router = useRouter()
@@ -142,10 +141,6 @@ const confirmarBorrar = accion(async () => {
   await boveda.borrar(borrar.value)
   toast.ok('Borrado')
   borrar.value = null
-})
-const reintentar = accion(async (v) => {
-  await api.post(`/videos/${v.id}/reintentar`)
-  boveda.cargar(true)
 })
 
 // ---------- selección y álbumes ----------
@@ -373,22 +368,6 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
       <CButton color="secondary" :variant="vista === 'miniaturas' ? undefined : 'outline'" title="Miniaturas" @click="vista = 'miniaturas'"><CIcon icon="cil-grid" /></CButton>
       <CButton color="secondary" :variant="vista === 'tarjetas' ? undefined : 'outline'" title="Tarjetas" @click="vista = 'tarjetas'"><CIcon icon="cil-list" /></CButton>
     </CButtonGroup>
-  </div>
-
-  <!-- Subidas en proceso o con error (aún sin metadatos ni tipo) -->
-  <div v-if="conPendientes && boveda.pendientes.length" class="video-grid mb-3">
-    <CCard v-for="v in boveda.pendientes" :key="v.id">
-      <Miniatura :item="v" />
-      <CCardBody class="p-2 px-3 small">
-        <CBadge :color="ESTADOS[v.status]?.color">{{ ESTADOS[v.status]?.texto }}</CBadge>
-        <span class="ms-2 text-body-secondary">{{ tamano(v.size) }}</span>
-        <div v-if="v.error" class="text-danger mt-1 text-truncate" :title="v.error">{{ v.error }}</div>
-        <div v-if="v.status === 'error'" class="mt-1">
-          <CButton color="link" size="sm" class="p-0 me-3" @click="reintentar(v)">Reintentar</CButton>
-          <CButton color="link" size="sm" class="p-0 text-danger" @click="borrar = v">Borrar</CButton>
-        </div>
-      </CCardBody>
-    </CCard>
   </div>
 
   <div v-if="!boveda.cargado" class="text-center py-5"><CSpinner /></div>

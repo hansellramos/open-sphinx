@@ -373,6 +373,13 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   // ---------- miniaturas (cifradas; se descifran al aparecer en pantalla) ----------
 
+  // Tras subir una miniatura nueva: que se vuelva a bajar.
+  function olvidarMiniatura(id) {
+    const u = thumbs.get(id)
+    if (u) URL.revokeObjectURL(u)
+    thumbs.delete(id)
+  }
+
   async function thumbUrl(v) {
     if (tipo(v) === 'archivo') return null
     if (thumbs.has(v.id)) return thumbs.get(v.id)
@@ -491,7 +498,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
     huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
-    favorito, renombrar, borrar, thumbUrl, publicKey: () => publicKey,
+    favorito, renombrar, borrar, thumbUrl, olvidarMiniatura, publicKey: () => publicKey,
     cifrarMeta, descifrarMeta, editarVarios, fechaVarios, ubicacionVarios, etiquetasVarios,
     albumes, album, albumesDe, crearAlbum, editarAlbum, borrarAlbum, agregarAAlbum, quitarDeAlbum, portadaAlbum, asignarAlbumes,
   }

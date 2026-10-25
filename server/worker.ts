@@ -11,7 +11,7 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { prisma } from './db.ts'
 import { borrarSubida, paths, videoDir } from './lib/paths.ts'
-import { cifradorHLS, cifrarEnPartes, listaVOD, miniatura, prepararImagen, probe, run, segmentar, sha256, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
+import { cifradorHLS, cifrarEnPartes, listaVOD, miniatura, prepararImagen, probe, segmentar, sha256, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
 import { abrirSubida, leerLlave, servir } from './lib/temporal.ts'
 import { b64u, encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
 import { cicloExportacion, guardarClave, recuperarExportaciones, vencerExportaciones } from './lib/exportar.ts'
@@ -49,7 +49,18 @@ export async function procesar(videoId: string) {
   const local = await servir(subida)
   try {
     // Qué es: un video que no se puede reproducir o una imagen que no se puede leer se guardan como archivo.
-    const huella = await sha256(subida)
+    // Avance para la app (0–99; 100 al quedar listo), por tramos: la huella y después segmentar (videos) o cifrar
+    // en partes (fotos y archivos). Se guarda como mucho cada 1,5 s.
+    let ultimo = -1, cuando = 0
+    const avance = (pct: number) => {
+      const x = Math.max(0, Math.min(99, Math.round(pct)))
+      if (x === ultimo || (Date.now() - cuando < 1500 && x < 99)) return
+      ultimo = x
+      cuando = Date.now()
+      prisma.video.update({ where: { id: video.id }, data: { progreso: x } }).catch(() => {})
+    }
+    const esVideo = tipoDe(nombre, video.mime) === 'video'
+    const huella = await sha256(subida, (f) => avance(f * (esVideo ? 25 : 50)))
     let tipo = tipoDe(nombre, video.mime)
     let p: Probe | null = null
     let img: InfoImagen | null = null
@@ -59,11 +70,7 @@ export async function procesar(videoId: string) {
       const c = cifradorHLS(work, destinoTmp, fk.key, { alCifrar: (s) => void segmentos.push(s) })
       try {
         p = await probe(local.url)
-        // TEMPORAL (diagnóstico de cuadros por segundo): solo números del video, nada del contenido.
-        await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_packets', '-show_entries', 'stream=codec_name,r_frame_rate,avg_frame_rate,time_base,nb_frames,nb_read_packets,duration', '-of', 'json', local.url])
-          .then((o) => console.log(`[fps-diag] ${video.id} original: ${JSON.stringify(JSON.parse(o).streams?.[0] ?? {})}`))
-          .catch((e) => console.log(`[fps-diag] ${video.id} original: no se pudo medir (${e.message})`))
-        await segmentar(local.url, work, p)
+        await segmentar(local.url, work, p, (f) => avance(25 + f * 70))
         await c.terminar()
       } catch (e) {
         await c.parar()
@@ -102,7 +109,7 @@ export async function procesar(videoId: string) {
     }
     if (p) await writeFile(path.join(destinoTmp, 'index.m3u8'), listaVOD(segmentos))
     // Fotos y archivos: también el original, en partes.
-    const parts = p ? null : await cifrarEnPartes(subida, destinoTmp, fk.key)
+    const parts = p ? null : await cifrarEnPartes(subida, destinoTmp, fk.key, (f) => avance(50 + f * 49))
     const keyWrap = await sealFileKey(vault.publicKey, fk.raw)
     const datos = p
       ? { takenAt: p.takenAt, location: p.location, device: p.device, duration: p.duration, width: p.width, height: p.height, videoCodec: p.videoCodec }
@@ -138,6 +145,7 @@ export async function procesar(videoId: string) {
           mime: null,
           extra: null,
           reducir: null,
+          progreso: 100,
           segments: p ? segmentos.length : null,
           keyWrap: JSON.stringify(keyWrap),
           readyAt: new Date(),

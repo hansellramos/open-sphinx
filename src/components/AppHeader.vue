@@ -29,7 +29,7 @@ async function salir() {
         <CIcon icon="cil-menu" size="lg" />
       </CHeaderToggler>
       <RouterLink v-if="subidas.activa" to="/subir" class="ms-2 small text-body-secondary text-decoration-none">
-        <CSpinner size="sm" class="me-1" /> Subiendo…
+        <CSpinner size="sm" class="me-1" /> Subiendo {{ subidas.resumen.actual }} de {{ subidas.resumen.n }} · {{ subidas.resumen.pct }}%
       </RouterLink>
       <CHeaderNav class="ms-auto d-flex align-items-center gap-1">
         <div class="d-flex align-items-center gap-2 me-2" :title="priv.segundos ? `Se vuelve a difuminar tras ${priv.segundos} s sin actividad` : ''">

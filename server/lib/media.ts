@@ -14,12 +14,13 @@ const tieneIonice = spawnSync('ionice', ['-c3', 'true']).status === 0
 
 export const conPrioridadBaja = (cmd: string, args: string[]) => [...(tieneIonice ? ['ionice', '-c3'] : []), ...(tieneNice ? ['nice', '-n', '19'] : []), cmd, ...args]
 
-export function run(cmd: string, args: string[]): Promise<string> {
+// alSalida: cada pedazo de stdout según llega (p. ej. el -progress de ffmpeg).
+export function run(cmd: string, args: string[], alSalida?: (s: string) => void): Promise<string> {
   const [bin, ...rest] = conPrioridadBaja(cmd, args)
   return new Promise((ok, ko) => {
     const p = spawn(bin, rest, { stdio: ['ignore', 'pipe', 'pipe'] })
     let out = '', err = ''
-    p.stdout.on('data', (d) => (out += d))
+    p.stdout.on('data', (d) => (alSalida ? alSalida(String(d)) : (out += d)))
     p.stderr.on('data', (d) => (err += d))
     p.on('error', ko)
     p.on('close', (code) => (code === 0 ? ok(out) : ko(new Error(`${cmd} salió con ${code}: ${err.trim().split('\n').slice(-3).join(' | ')}`))))
@@ -81,19 +82,25 @@ const AUDIO_COPIA = ['aac', 'mp3', 'opus', 'ac3', 'eac3']
 // HLS con fragmentos fMP4 de ~6 s: index.m3u8 + init.mp4 + seg_00000.m4s… La lista es tipo EVENT: ffmpeg la
 // reescribe con cada fragmento que cierra, así cifradorHLS sabe cuáles ya están completos.
 export const HLS = ['-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'event', '-hls_flags', 'temp_file', '-hls_segment_type', 'fmp4', '-hls_fmp4_init_filename', 'init.mp4']
-export async function segmentar(input: string, outDir: string, p: Probe) {
+// progreso: fracción (0–1) de lo segmentado, según el tiempo que va.
+export async function segmentar(input: string, outDir: string, p: Probe, progreso?: (f: number) => void) {
   if (!VIDEO_OK.includes(p.videoCodec)) throw new Error(`Formato de video no soportado todavía: ${p.videoCodec}`)
-  const args = ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'copy']
+  const args = ['-hide_banner', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', '-y', '-i', input, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'copy']
   if (p.videoCodec === 'hevc') args.push('-tag:v', 'hvc1') // Safari/Chrome exigen hvc1 en MP4
   if (p.audioCodec && !AUDIO_COPIA.includes(p.audioCodec)) args.push('-c:a', 'aac', '-b:a', '160k')
   else args.push('-c:a', 'copy')
   args.push(...HLS, '-hls_segment_filename', `${outDir}/seg_%05d.m4s`, `${outDir}/index.m3u8`)
-  await run('ffmpeg', args)
+  await run('ffmpeg', args, (s) => {
+    const us = [...s.matchAll(/^out_time_us=(\d+)/gm)].at(-1)?.[1]
+    if (us && p.duration > 0) progreso?.(Math.min(1, Number(us) / 1e6 / p.duration))
+  })
 }
 
 export async function miniatura(input: string, outFile: string, p: Probe) {
   const t = Math.min(1, p.duration / 2)
-  await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(t), '-i', input, '-frames:v', '1', '-vf', "scale='min(640,iw)':-2", '-q:v', '4', outFile])
+  // Un solo hilo: con todos, un 4K HEVC de 10 bits (Dolby Vision del iPhone) usaba ~750 MB solo para este cuadro y
+  // llevó al worker a su límite (la NAS se quedó sin memoria). Con uno, ~210 MB.
+  await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-threads', '1', '-ss', String(t), '-i', input, '-frames:v', '1', '-filter_threads', '1', '-vf', "scale='min(640,iw)':-2", '-q:v', '4', outFile])
 }
 
 // ---------------- tipo de elemento ----------------
@@ -194,20 +201,26 @@ export async function prepararImagen(input: string, nombre: string, outDir: stri
 // ---------------- originales en partes ----------------
 
 // Cifra el original en partes (orig_00000.enc…) leyéndolo por pedazos de la subida: no lo carga entero en RAM.
-export async function cifrarEnPartes(l: Lector, outDir: string, key: CryptoKey) {
+export async function cifrarEnPartes(l: Lector, outDir: string, key: CryptoKey, progreso?: (f: number) => void) {
   const total = Math.max(1, Math.ceil(l.size / TAM_PARTE))
   for (let i = 0; i < total; i++) {
     const plano = await l.leer(i * TAM_PARTE, TAM_PARTE)
     await writeFile(path.join(outDir, `${nombreParte(i)}.enc`), await encryptBlob(key, plano, aadParte(i, total)))
     plano.fill(0)
+    progreso?.((i + 1) / total)
   }
   return total
 }
 
 // Huella del original (para detectar duplicados). Va dentro de los metadatos cifrados, nunca en claro.
-export async function sha256(l: Lector) {
+export async function sha256(l: Lector, progreso?: (f: number) => void) {
   const h = createHash('sha256')
-  for await (const chunk of l.flujo()) h.update(chunk)
+  let leido = 0
+  for await (const chunk of l.flujo()) {
+    h.update(chunk)
+    leido += chunk.length
+    progreso?.(l.size ? leido / l.size : 1)
+  }
   return h.digest('hex')
 }
 

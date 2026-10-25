@@ -1,6 +1,7 @@
 // Elementos (videos, fotos y archivos; la tabla se llama Video por historia): subida reanudable (tus),
 // lista, archivos cifrados y borrado. El tipo de cada uno va dentro de los metadatos cifrados.
-import { Router } from 'express'
+import express, { Router } from 'express'
+import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -77,6 +78,8 @@ const publico = (v) => ({
   size: v.size,
   status: v.status,
   error: v.error,
+  progreso: v.progreso,
+  uploadId: v.uploadId, // id de la subida tus mientras no se procesa (para que Subir muestre el avance)
   keyWrap: v.keyWrap ? JSON.parse(v.keyWrap) : null,
   meta: v.meta,
   createdAt: v.createdAt,
@@ -152,6 +155,18 @@ r.post('/:id/exportar', async (req, res) => {
   await guardarClave(id, clave) // antes de quedar en cola, para que el worker la encuentre
   const e = igual ? await prisma.exportacion.update({ where: { id }, data }) : await prisma.exportacion.create({ data: { ...data, id, videoId: v.id, alto, filtro } })
   res.json(exportPublica(e))
+})
+
+// Miniatura cifrada por el navegador para un video que quedó sin ella (la NAS no la pudo sacar). Solo si falta.
+r.put('/:id/miniatura', express.raw({ type: 'application/octet-stream', limit: '2mb' }), async (req, res) => {
+  const v = await prisma.video.findUnique({ where: { id: req.params.id } })
+  if (!v || v.status !== 'listo' || !v.segments) return res.status(404).json({ error: 'No hay un video listo con ese id' })
+  const cuerpo = req.body
+  if (!Buffer.isBuffer(cuerpo) || cuerpo.length < 1000) return res.status(400).json({ error: 'Miniatura no válida' })
+  const destino = path.join(videoDir(v.id), 'thumb.jpg.enc')
+  if (existsSync(destino)) return res.status(409).json({ error: 'Ya tiene miniatura' })
+  await writeFile(destino, cuerpo, { flag: 'wx' })
+  res.json({ ok: true })
 })
 
 // Archivos cifrados (y el index.m3u8, que solo lista nombres y duraciones).
