@@ -108,7 +108,8 @@ export const useSubidasStore = defineStore('subidas', () => {
       chunkSize: 32 * 1024 * 1024,
       retryDelays: [0, 1000, 3000, 5000, 10000, 30000],
       removeFingerprintOnSuccess: true,
-      metadata: { filename: it.nombre, filetype: it.file.type || '', ...(extra && { extra }), ...(it.reducir && { reducir: String(it.reducir) }) },
+      // modificado: TEMPORAL (diagnóstico de fechas): la fecha que el navegador dice que tiene el archivo.
+      metadata: { filename: it.nombre, filetype: it.file.type || '', ...(extra && { extra }), ...(it.reducir && { reducir: String(it.reducir) }), modificado: String(it.file.lastModified ?? '') },
       onProgress: (sent, total) => {
         it.progreso = Math.round((sent / total) * 1000) / 10
         medir(it, sent, total)
