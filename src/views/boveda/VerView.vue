@@ -42,6 +42,7 @@ const error = ref('')
 const editando = ref(false)
 const titulo = ref('')
 const ubicando = ref(false)
+const borrando = ref(false)
 const cambiandoFecha = ref(false)
 const nuevaFecha = ref('')
 const urlPrevia = ref(null) // blob URL de la foto o del archivo
@@ -175,6 +176,15 @@ const guardarTitulo = accion(async () => {
   editando.value = false
 })
 const guardarEtiquetas = accion((nombres) => boveda.asignarEtiquetas(item.value, nombres))
+// Borrar: se pasa al siguiente (o al anterior); si era el único, atrás.
+const confirmarBorrar = accion(async () => {
+  const otro = siguiente.value ?? anterior.value
+  await boveda.borrar(item.value)
+  borrando.value = false
+  toast.ok('Borrado')
+  if (otro) ir(otro)
+  else volver()
+})
 // Álbumes de este elemento.
 const eligiendoAlbumes = ref(false)
 const creandoAlbum = ref(false)
@@ -364,6 +374,7 @@ onBeforeUnmount(() => {
         <CButton color="link" :class="[m.favorite ? 'text-warning' : 'text-body-secondary']" :title="m.favorite ? 'Quitar de favoritos' : 'Marcar como favorito'" @click="favorito">
           <CIcon icon="cil-star" size="xl" />
         </CButton>
+        <CButton color="link" class="text-body-secondary px-1" title="Borrar" @click="borrando = true"><CIcon icon="cil-trash" size="lg" /></CButton>
       </template>
     </template>
   </div>
@@ -521,5 +532,13 @@ onBeforeUnmount(() => {
   <VisorCompleto v-if="visor" :ids="idsVisor" :inicial="item.id" @cerrar="cerrarVisor" />
   <UbicacionModal v-if="m && tipo !== 'archivo'" :item="item" :visible="ubicando" @close="ubicando = false" @save="guardarUbicacion" />
   <AlbumElegirModal :visible="eligiendoAlbumes" :ids="item ? [item.id] : []" @close="eligiendoAlbumes = false" @listo="eligiendoAlbumes = false" @nuevo="eligiendoAlbumes = false; creandoAlbum = true" />
+  <CModal :visible="borrando" alignment="center" @close="borrando = false">
+    <CModalHeader><CModalTitle>¿Borrar?</CModalTitle></CModalHeader>
+    <CModalBody>Se borra de la NAS para siempre (con sus exportaciones). No se puede deshacer.</CModalBody>
+    <CModalFooter>
+      <CButton color="secondary" variant="ghost" @click="borrando = false">Cancelar</CButton>
+      <CButton color="danger" @click="confirmarBorrar">Borrar</CButton>
+    </CModalFooter>
+  </CModal>
   <AlbumModal :visible="creandoAlbum" :ids="item ? [item.id] : []" @close="creandoAlbum = false" @save="crearAlbumConEste" />
 </template>

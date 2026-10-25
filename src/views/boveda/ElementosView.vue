@@ -162,6 +162,23 @@ function terminarSeleccion() {
 const albumes = ref(null) // ids para el selector de álbumes
 const masiva = ref(null) // fecha | etiquetas (a los elegidos)
 const ubicandoVarios = ref(false)
+const borrandoVarios = ref(null) // progreso (null = preguntando)
+const preguntandoBorrar = ref(false)
+const borrarVarios = accion(async () => {
+  const vs = elegidos.value
+  borrandoVarios.value = 0
+  try {
+    for (const [i, v] of vs.entries()) {
+      await boveda.borrar(v)
+      borrandoVarios.value = Math.round(((i + 1) / vs.length) * 100)
+    }
+    toast.ok(`${plural(vs.length)} ${vs.length === 1 ? 'borrado' : 'borrados'}`)
+  } finally {
+    borrandoVarios.value = null
+    preguntandoBorrar.value = false
+    terminarSeleccion()
+  }
+})
 const elegidos = computed(() => idsSel.value.map((id) => boveda.listos.find((v) => v.id === id)).filter(Boolean))
 const ubicables = computed(() => elegidos.value.filter((v) => boveda.tipo(v) !== 'archivo'))
 const masivaLista = () => {
@@ -450,6 +467,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
             <CDropdownItem v-if="ubicables.length" as="button" @click="ubicandoVarios = true"><CIcon icon="cil-location-pin" class="me-2" />Ubicación…</CDropdownItem>
           </CDropdownMenu>
         </CDropdown>
+        <CButton color="danger" variant="outline" :disabled="!nSel" title="Borrar los elegidos" @click="preguntandoBorrar = true"><CIcon icon="cil-trash" /></CButton>
         <CButton color="primary" :disabled="!nSel" @click="albumes = idsSel"><CIcon icon="cil-library" class="me-1" />Álbumes…</CButton>
       </template>
     </div>
@@ -462,6 +480,17 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
     @listo="albumes = null; sel && terminarSeleccion()"
     @nuevo="nuevoAlbum = { ids: albumes }; albumes = null"
   />
+  <CModal :visible="preguntandoBorrar" alignment="center" backdrop="static" @close="borrandoVarios === null && (preguntandoBorrar = false)">
+    <CModalHeader :close-button="borrandoVarios === null"><CModalTitle>¿Borrar {{ plural(nSel) }}?</CModalTitle></CModalHeader>
+    <CModalBody>
+      Se borran de la NAS para siempre (con sus exportaciones). No se puede deshacer.
+      <CProgress v-if="borrandoVarios !== null" :value="borrandoVarios" class="mt-3" height="6" />
+    </CModalBody>
+    <CModalFooter>
+      <CButton color="secondary" variant="ghost" :disabled="borrandoVarios !== null" @click="preguntandoBorrar = false">Cancelar</CButton>
+      <CButton color="danger" :disabled="borrandoVarios !== null" @click="borrarVarios">Borrar {{ nSel }}</CButton>
+    </CModalFooter>
+  </CModal>
   <EdicionMasivaModal :modo="masiva" :items="elegidos" @close="masiva = null" @listo="masivaLista" />
   <UbicacionModal :visible="ubicandoVarios" :items="ubicables" @close="ubicandoVarios = false" @save="ubicarVarios" />
   <AlbumModal :visible="!!nuevoAlbum" :ids="nuevoAlbum?.ids ?? []" @close="nuevoAlbum = null" @save="crearAlbum" />

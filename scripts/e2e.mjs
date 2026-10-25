@@ -619,7 +619,26 @@ try {
     await page.setViewportSize({ width: 1280, height: 720 })
   }
   paso('borrar un álbum deja sus fotos; crear un álbum desde el detalle de una foto')
+  // Borrar: desde el detalle (pasa al siguiente) y varios desde «Seleccionar».
   await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
+  const totalAntes = await page.locator('.mini').count()
+  await page.locator('.mini[title*="2023"]').click()
+  const urlBorrada = page.url()
+  await page.getByTitle('Borrar', { exact: true }).click()
+  await page.locator('.modal').getByRole('button', { name: 'Borrar', exact: true }).click()
+  await page.getByText('Borrado', { exact: true }).waitFor()
+  await page.waitForURL((u) => /#\/ver\//.test(u.href) && u.href !== urlBorrada)
+  await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
+  await page.waitForFunction((n) => document.querySelectorAll('.mini').length === n, totalAntes - 1)
+  await page.getByRole('button', { name: 'Seleccionar' }).click()
+  await page.locator('.mini[title*="2017"]').first().click()
+  await page.locator('.mini[title*="2017"]').last().click()
+  await page.getByTitle('Borrar los elegidos').click()
+  await page.getByRole('button', { name: 'Borrar 2' }).click()
+  await page.getByText('2 elementos borrados').waitFor()
+  await page.waitForFunction((n) => document.querySelectorAll('.mini').length === n, totalAntes - 3)
+  if (await page.getByText('2 elegidos').count()) throw new Error('tras borrar debería salir del modo selección')
+  paso('borrar desde el detalle (pasa al siguiente) y varios a la vez desde Seleccionar')
   await page.getByTitle('Tarjetas').click() // como estaba
 
   // Migración de un video del MVP (título y etiqueta sin cifrar en la base).
