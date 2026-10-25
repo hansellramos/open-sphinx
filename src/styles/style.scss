@@ -143,3 +143,5 @@ body { background-color: #f4f4f8; }
 .elegido .marca-sel { background: var(--cui-primary); }
 .barra-seleccion { position: sticky; bottom: 0; z-index: 10; background: var(--cui-body-bg); border-top: 1px solid var(--cui-border-color); padding: .5rem 0; padding-bottom: max(.5rem, env(safe-area-inset-bottom)); }
 .nota-texto { white-space: pre-line; padding: .35rem .5rem; border-radius: .375rem; background: var(--cui-tertiary-bg); cursor: text; }
+.presionable { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.fab-seleccionar { position: fixed; right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom)); z-index: 1030; border-radius: 2rem; }

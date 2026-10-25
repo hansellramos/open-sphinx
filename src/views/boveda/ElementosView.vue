@@ -3,7 +3,8 @@
 // cambiarles a la vez la fecha, las etiquetas o la ubicación, y agregarlos a álbumes (o quitarlos del abierto). Filtros por texto, fecha, ubicación y zona
 // del mapa; todo se hace aquí sobre los metadatos ya descifrados. Fotos y videos en miniaturas (cuadritos por día,
 // para el celular) o en tarjetas por mes; se muestran por fecha y el nombre queda en los detalles. Los archivos, en lista.
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useCompartir } from '@/lib/compartir'
 import { useRoute, useRouter } from 'vue-router'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
@@ -95,6 +96,7 @@ const filtrados = computed(() => {
 // Agrupado por mes de la fecha en que se tomó/grabó.
 // Al abrir uno, el visor pasa al anterior/siguiente en este mismo orden y con estos filtros.
 function abrir(v) {
+  if (ignorarClic) return (ignorarClic = false)
   if (sel.value) return elegir(v)
   boveda.secuencia = filtrados.value.filter((x) => x.m).map((x) => x.id)
   router.push(`/ver/${v.id}`)
@@ -146,6 +148,38 @@ const reintentar = accion(async (v) => {
 })
 
 // ---------- selección y álbumes ----------
+// Mantener presionado un elemento (como en Fotos del iPhone) empieza a seleccionar con ese ya elegido. El clic que
+// llega al soltar se ignora. Si el dedo se mueve (scroll), no cuenta.
+let presion = null
+let ignorarClic = false
+function presionar(v, e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  ignorarClic = false // el clic tras una presión larga no siempre llega (iOS): cada toque nuevo empieza limpio
+  soltar()
+  presion = { x: e.clientX, y: e.clientY, t: setTimeout(() => {
+    presion = null
+    ignorarClic = true
+    if (!sel.value) sel.value = new Set()
+    elegir(v)
+    navigator.vibrate?.(15)
+  }, 450) }
+}
+function mover(e) {
+  if (presion && Math.hypot(e.clientX - presion.x, e.clientY - presion.y) > 10) soltar()
+}
+function soltar() {
+  if (presion) clearTimeout(presion.t)
+  presion = null
+}
+const presionable = (v) => ({ pointerdown: (e) => presionar(v, e), pointermove: mover, pointerup: soltar, pointercancel: soltar, pointerleave: soltar, contextmenu: (e) => e.preventDefault() })
+// «Seleccionar» flotante cuando el de arriba ya no se ve.
+const bajo = ref(false)
+const alScroll = () => (bajo.value = window.scrollY > 250)
+onMounted(() => window.addEventListener('scroll', alScroll, { passive: true }))
+onBeforeUnmount(() => window.removeEventListener('scroll', alScroll))
+// Compartir los elegidos en una sola hoja (en el orden de la lista).
+const { progreso: progresoCompartir, compartirVarios } = useCompartir()
+const compartirElegidos = () => compartirVarios(filtrados.value.filter((v) => sel.value?.has(v.id)))
 const sel = ref(null) // Set de ids mientras se selecciona
 const nSel = computed(() => sel.value?.size ?? 0)
 const idsSel = computed(() => [...(sel.value ?? [])])
@@ -366,7 +400,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
     <template v-for="g in grupos" :key="g.k">
       <div class="grupo-mes">{{ g.k }}</div>
       <CListGroup>
-        <CListGroupItem v-for="v in g.items" :key="v.id" class="d-flex align-items-center gap-3 archivo-fila" :active="sel?.has(v.id)" @click="abrir(v)">
+        <CListGroupItem v-for="v in g.items" :key="v.id" class="d-flex align-items-center gap-3 archivo-fila presionable" :active="sel?.has(v.id)" v-on="presionable(v)" @click="abrir(v)">
           <CIcon v-if="sel" :icon="sel.has(v.id) ? 'cil-check-circle' : 'cil-circle'" class="flex-shrink-0" />
           <CIcon :icon="iconoArchivo(v.m.originalName, v.m.mime ?? '')" size="xl" class="text-body-secondary flex-shrink-0" />
           <div class="flex-grow-1 min-w-0">
@@ -398,7 +432,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
     <template v-for="g in grupos" :key="g.k">
       <div class="grupo-dia">{{ g.k }}</div>
       <div class="mini-grid">
-        <button v-for="v in g.items" :key="v.id" type="button" class="mini" :class="{ elegido: sel?.has(v.id) }" :title="fechaCorta(boveda.fechaDe(v))" :aria-pressed="sel ? sel.has(v.id) : undefined" @click="abrir(v)">
+        <button v-for="v in g.items" :key="v.id" type="button" class="mini presionable" :class="{ elegido: sel?.has(v.id) }" :title="fechaCorta(boveda.fechaDe(v))" :aria-pressed="sel ? sel.has(v.id) : undefined" v-on="presionable(v)" @click="abrir(v)">
           <Miniatura :item="v">
             <span v-if="sel" class="marca-sel"><CIcon v-if="sel.has(v.id)" icon="cil-check-alt" size="sm" /></span>
             <CIcon v-if="v.m.favorite" icon="cil-star" size="sm" class="mini-fav" />
@@ -410,7 +444,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
   <template v-for="g in grupos" v-else :key="g.k">
     <div class="grupo-mes">{{ g.k }}</div>
     <div class="video-grid">
-      <CCard v-for="v in g.items" :key="v.id" class="video-card" :class="{ elegido: sel?.has(v.id) }" @click="abrir(v)">
+      <CCard v-for="v in g.items" :key="v.id" class="video-card presionable" :class="{ elegido: sel?.has(v.id) }" v-on="presionable(v)" @click="abrir(v)">
         <Miniatura :item="v">
           <span v-if="sel" class="marca-sel"><CIcon v-if="sel.has(v.id)" icon="cil-check-alt" size="sm" /></span>
           <button type="button" class="fav" :class="{ on: v.m.favorite }" :title="v.m.favorite ? 'Quitar de favoritos' : 'Favorito'" @click.stop="favorito(v)">
@@ -449,6 +483,9 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
   </template>
   <div class="mb-4"></div>
 
+  <button v-if="!sel && bajo && base.length" type="button" class="btn btn-primary fab-seleccionar shadow" aria-label="Empezar a seleccionar" @click="empezarSeleccion">
+    <CIcon icon="cil-check-circle" class="me-1" />Seleccionar
+  </button>
   <div v-if="sel" class="barra-seleccion d-flex flex-wrap align-items-center gap-2">
     <span class="fw-semibold me-1">{{ nSel }} {{ nSel === 1 ? 'elegido' : 'elegidos' }}</span>
     <CButton color="link" size="sm" class="px-1" @click="elegirTodos">{{ todosElegidos ? 'Ninguno' : `Todos (${filtrados.length})` }}</CButton>
@@ -468,6 +505,9 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
             <CDropdownItem v-if="ubicables.length" as="button" @click="ubicandoVarios = true"><CIcon icon="cil-location-pin" class="me-2" />Ubicación…</CDropdownItem>
           </CDropdownMenu>
         </CDropdown>
+        <CButton color="secondary" variant="outline" :disabled="!nSel || progresoCompartir !== null" title="Compartir los elegidos" @click="compartirElegidos">
+          <CIcon icon="cil-share-boxed" /><span v-if="progresoCompartir !== null" class="small ms-1">{{ progresoCompartir }}%</span>
+        </CButton>
         <CButton color="danger" variant="outline" :disabled="!nSel" title="Borrar los elegidos" @click="preguntandoBorrar = true"><CIcon icon="cil-trash" /></CButton>
         <CButton color="primary" :disabled="!nSel" @click="albumes = idsSel"><CIcon icon="cil-library" class="me-1" />Álbumes…</CButton>
       </template>

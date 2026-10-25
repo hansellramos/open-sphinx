@@ -448,21 +448,25 @@ export const useBovedaStore = defineStore('boveda', () => {
   }
 
   // Hoja de compartir del sistema; si el navegador no la tiene, se descarga.
+  // Uno o varios archivos (todos en la misma hoja).
   async function compartir(file) {
-    if (navigator.canShare?.({ files: [file] })) {
+    const files = Array.isArray(file) ? file : [file]
+    if (navigator.canShare?.({ files })) {
       try {
-        await navigator.share({ files: [file] })
+        await navigator.share({ files })
       } catch (e) {
         if (e.name !== 'AbortError') throw e
       }
       return
     }
-    const url = URL.createObjectURL(file)
-    const a = Object.assign(document.createElement('a'), { href: url, download: file.name })
-    document.body.append(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    for (const f of files) {
+      const url = URL.createObjectURL(f)
+      const a = Object.assign(document.createElement('a'), { href: url, download: f.name })
+      document.body.append(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    }
   }
 
   function limpiar() {
