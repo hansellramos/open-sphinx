@@ -118,6 +118,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   // Etiquetas elegidas al subir: llegan selladas con la pública dentro de los metadatos (el worker no
   // puede leerlas). Aquí se abren, se agregan y se quita lo sellado.
   async function aplicarSellados() {
+    const aAlbumes = new Map() // álbum → ids elegidos al subir
     for (const v of listos.value.filter((x) => x.m.sellado)) {
       try {
         const extra = await decryptJSON(await auth.abrirSellado(v.m.sellado.k), v.m.sellado.d)
@@ -128,12 +129,23 @@ export const useBovedaStore = defineStore('boveda', () => {
         if (extra.takenAt && (extra.manual || !m.takenAt)) m.takenAt = extra.takenAt
         // Si no hay ninguna, la del archivo según el navegador (p. ej. lo guardado de WhatsApp en el iPhone).
         if (!m.takenAt && extra.archivo) Object.assign(m, { takenAt: extra.archivo, fechaOrigen: 'archivo' })
+        if (typeof extra.nota === 'string' && extra.nota) m.nota = extra.nota.slice(0, 2000)
+        for (const a of extra.albumes ?? []) aAlbumes.set(a, [...(aAlbumes.get(a) ?? []), v.id])
         if (extra.title) m.title = extra.title
         await guardarMeta(v, m, true)
       } catch (e) {
         console.warn('No se pudieron aplicar las etiquetas de la subida', e)
       }
     }
+    // Álbumes elegidos al subir (los que ya no existan se ignoran); un solo guardado del catálogo.
+    let cambio = false
+    for (const [id, ids] of aAlbumes) {
+      const a = catalogo.value.albumes.find((x) => x.id === id)
+      if (!a) continue
+      a.items = [...new Set([...a.items, ...ids])]
+      cambio = true
+    }
+    if (cambio) await guardarCatalogo().catch((e) => console.warn('No se pudieron agregar a los álbumes', e))
   }
 
   // Sella algo para que solo la bóveda lo abra (como la clave de un archivo): { k: clave sellada, d: JSON cifrado }.
@@ -152,7 +164,11 @@ export const useBovedaStore = defineStore('boveda', () => {
     if (a.takenAt && (a.manual || !v.m.takenAt)) cambios.takenAt = a.takenAt
     else if (a.archivo && !v.m.takenAt) Object.assign(cambios, { takenAt: a.archivo, fechaOrigen: 'archivo' })
     if (a.title) cambios.title = a.title
-    return guardarMeta(v, cambios)
+    if (a.nota) cambios.nota = a.nota
+    const r = await guardarMeta(v, cambios)
+    const alb = (a.albumes ?? []).filter((id) => catalogo.value.albumes.some((x) => x.id === id))
+    if (alb.length) await asignarAlbumes([v.id], Object.fromEntries(alb.map((id) => [id, true])))
+    return r
   }
   async function ajustarPorHuella(sha, a) {
     const v = huellas.value.get(sha)

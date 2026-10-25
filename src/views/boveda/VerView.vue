@@ -187,6 +187,15 @@ const confirmarBorrar = accion(async () => {
 })
 // Álbumes de este elemento.
 const eligiendoAlbumes = ref(false)
+// Nota (cifrada en los metadatos, como el resto): se guarda al salir del campo.
+const nota = ref(null) // texto mientras se edita
+const guardarNota = accion(async () => {
+  const t = nota.value.trim().slice(0, 2000)
+  nota.value = null
+  if (t === (m.value.nota ?? '')) return
+  await boveda.guardarMeta(item.value, { nota: t || undefined })
+  toast.ok(t ? 'Nota guardada' : 'Nota borrada')
+})
 const creandoAlbum = ref(false)
 const crearAlbumConEste = accion(async (datos) => {
   const a = await boveda.crearAlbum(datos, [item.value.id])
@@ -434,6 +443,16 @@ onBeforeUnmount(() => {
         </RouterLink>
         <CButton color="link" size="sm" class="py-0" @click="eligiendoAlbumes = true">{{ boveda.albumesDe(item).length ? 'Cambiar' : 'Agregar a un álbum' }}</CButton>
       </div>
+      <div class="small text-body-secondary mt-3 mb-1">Nota</div>
+      <form v-if="nota !== null" @submit.prevent="guardarNota">
+        <CFormTextarea v-model="nota" rows="3" maxlength="2000" aria-label="Nota" autofocus />
+        <div class="d-flex gap-2 mt-1">
+          <CButton type="submit" color="primary" size="sm">Guardar</CButton>
+          <CButton color="secondary" variant="ghost" size="sm" @click="nota = null">Cancelar</CButton>
+        </div>
+      </form>
+      <div v-else-if="m.nota" class="nota-texto" role="button" title="Editar la nota" @click="nota = m.nota">{{ m.nota }}</div>
+      <CButton v-else color="link" size="sm" class="p-0" @click="nota = ''">Agregar una nota</CButton>
     </CCol>
     <CCol md="5" class="small">
       <form v-if="cambiandoFecha" class="mb-1 d-flex align-items-center gap-2" @submit.prevent="guardarFecha">

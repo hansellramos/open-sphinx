@@ -2,12 +2,15 @@
 // Subir: elegir, arrastrar o pegar. Pegar tiene dos caminos: el botón (navigator.clipboard.read: Safari solo
 // entrega imágenes y texto) y el recuadro donde se mantiene presionado → Pegar (evento paste: ahí Safari
 // también entrega archivos copiados desde la app Archivos). En el Mac, Cmd+V en cualquier parte de la página.
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSubidasStore } from '@/stores/subidas'
 import { useToastStore } from '@/stores/toast'
 import { useBovedaStore } from '@/stores/boveda'
+import { usePrivacidadStore } from '@/stores/privacidad'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
+import AlbumElegirModal from '@/components/elementos/AlbumElegirModal.vue'
+import AlbumModal from '@/components/elementos/AlbumModal.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { duracion, fecha, tamano } from '@/lib/formato'
 
@@ -15,10 +18,13 @@ const router = useRouter()
 const subidas = useSubidasStore()
 const toast = useToastStore()
 const boveda = useBovedaStore()
+const priv = usePrivacidadStore()
 const input = ref(null)
 const encima = ref(false)
 const nota = ref(null) // { nombre, texto } cuando lo pegado es solo texto
 const editandoEtq = ref(new Set()) // ids de la lista con el editor de etiquetas abierto
+const editandoNota = ref(new Set()) // ids de la lista con la nota abierta
+const alternarNota = (it) => (editandoNota.value.has(it.id) ? editandoNota.value.delete(it.id) : editandoNota.value.add(it.id))
 const alternarEtq = (it) => (editandoEtq.value.has(it.id) ? editandoEtq.value.delete(it.id) : editandoEtq.value.add(it.id))
 
 const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'application/pdf': 'pdf' }
@@ -76,8 +82,43 @@ function guardarNota() {
   nota.value = null
 }
 
-onMounted(() => document.addEventListener('paste', alPegar))
+onMounted(() => {
+  document.addEventListener('paste', alPegar)
+  boveda.cargar().catch(() => {}) // álbumes y etiquetas para elegir
+})
 onBeforeUnmount(() => document.removeEventListener('paste', alPegar))
+
+// Álbumes: para lo que se agregue (it = null) o para un archivo de la lista.
+const eligiendoAlbum = ref(undefined) // undefined = cerrado; null = los de todo lo que se suba; item
+const creandoAlbum = ref(false)
+const nombreAlbum = (id) => boveda.album(id)?.name
+const albumesActuales = computed(() => (eligiendoAlbum.value ? eligiendoAlbum.value.albumes : subidas.albumes))
+function ponerAlbumes(ids) {
+  if (eligiendoAlbum.value) subidas.cambiar(eligiendoAlbum.value, { albumes: ids })
+  else subidas.albumes = ids
+}
+function albumesElegidos(ids) {
+  ponerAlbumes(ids)
+  eligiendoAlbum.value = undefined
+}
+let paraNuevo = null
+function nuevoAlbum() {
+  paraNuevo = eligiendoAlbum.value
+  eligiendoAlbum.value = undefined
+  creandoAlbum.value = true
+}
+async function crearAlbum(datos) {
+  try {
+    const a = await boveda.crearAlbum(datos)
+    creandoAlbum.value = false
+    const ids = [...(paraNuevo ? paraNuevo.albumes : subidas.albumes), a.id]
+    if (paraNuevo) subidas.cambiar(paraNuevo, { albumes: ids })
+    else subidas.albumes = ids
+    toast.ok(`Álbum «${a.name}» creado`)
+  } catch (e) {
+    toast.error(e)
+  }
+}
 
 const REDUCIR = [[null, 'Dejar el original'], [720, 'Reducir a 720p y reemplazar el original'], [540, 'Reducir a 540p y reemplazar el original']]
 const REDUCIR_CORTO = [[null, 'Original'], [720, 'Reducir a 720p'], [540, 'Reducir a 540p']]
@@ -93,6 +134,14 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
   <div class="mb-3">
     <div class="small text-body-secondary mb-1">Etiquetas para lo que subas (opcional)</div>
     <EtiquetasEditor v-model="subidas.etiquetas" :sugerencias="boveda.etiquetas" />
+  </div>
+
+  <div class="mb-3">
+    <div class="small text-body-secondary mb-1">Álbumes para lo que subas (opcional)</div>
+    <div class="d-flex flex-wrap gap-1 align-items-center">
+      <CBadge v-for="id in subidas.albumes.filter(nombreAlbum)" :key="id" color="secondary" class="fw-normal"><CIcon icon="cil-library" size="sm" class="me-1" />{{ nombreAlbum(id) }}</CBadge>
+      <CButton color="link" size="sm" class="py-0" @click="eligiendoAlbum = null">{{ subidas.albumes.length ? 'Cambiar' : 'Elegir álbumes' }}</CButton>
+    </div>
   </div>
 
   <div class="mb-3">
@@ -140,6 +189,10 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
   <CCard v-for="it in subidas.items" :key="it.id" class="mb-2">
     <CCardBody class="py-2">
       <div class="d-flex align-items-center gap-2 mb-1">
+        <div class="subir-mini" aria-hidden="true">
+          <img v-if="it.mini" :src="it.mini" alt="" :class="{ difuminada: priv.difuminar }" />
+          <CIcon v-else :icon="it.video ? 'cil-video' : 'cil-file'" class="text-secondary" />
+        </div>
         <div class="flex-grow-1 text-truncate fw-semibold" :title="it.nombre">{{ it.nombre }}</div>
         <span class="small text-body-secondary text-nowrap">{{ tamano(it.tam) }}</span>
         <CButton v-if="it.estado === 'error'" color="link" size="sm" @click="subidas.reintentar(it)">Reintentar</CButton>
@@ -165,13 +218,26 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
         <select v-if="it.video" class="form-select form-select-sm subir-reducir-item" :value="it.reducir ?? ''" aria-label="Reducir este video" @change="subidas.cambiar(it, { reducir: Number($event.target.value) || null })">
           <option v-for="[v, txt] in REDUCIR_CORTO" :key="String(v)" :value="v ?? ''">{{ txt }}</option>
         </select>
-        <button type="button" class="btn btn-link btn-sm p-0 ms-sm-auto d-inline-flex align-items-center gap-1 text-decoration-none" title="Etiquetas de este archivo" @click="alternarEtq(it)">
+        <button type="button" class="btn btn-link btn-sm p-0 ms-sm-auto d-inline-flex align-items-center gap-1 text-decoration-none" title="Álbumes de este archivo" @click="eligiendoAlbum = it">
+          <CIcon icon="cil-library" />
+          <template v-if="!it.albumes.filter(nombreAlbum).length">Álbum</template>
+          <CBadge v-for="id in it.albumes.filter(nombreAlbum)" :key="id" color="secondary" class="fw-normal">{{ nombreAlbum(id) }}</CBadge>
+        </button>
+        <button type="button" class="btn btn-link btn-sm p-0 d-inline-flex align-items-center gap-1 text-decoration-none" title="Nota de este archivo" @click="alternarNota(it)">
+          <CIcon icon="cil-notes" />{{ it.nota.trim() ? 'Nota ✓' : 'Nota' }}
+        </button>
+        <button type="button" class="btn btn-link btn-sm p-0 d-inline-flex align-items-center gap-1 text-decoration-none" title="Etiquetas de este archivo" @click="alternarEtq(it)">
           <CIcon icon="cil-tags" />
           <template v-if="!it.tags.length">Etiquetas</template>
           <CBadge v-for="t in it.tags" :key="t" color="secondary" class="fw-normal">{{ t }}</CBadge>
         </button>
       </div>
+      <!-- @change: se guarda al salir del campo (no en cada letra) -->
+      <CFormTextarea v-if="editandoNota.has(it.id)" class="mt-2" rows="2" maxlength="2000" placeholder="Nota (va cifrada con la foto)" aria-label="Nota de este archivo" :model-value="it.nota" @change="subidas.cambiar(it, { nota: $event.target.value })" />
       <EtiquetasEditor v-if="editandoEtq.has(it.id)" class="mt-2" :model-value="it.tags" :sugerencias="boveda.etiquetas" @update:model-value="(t) => subidas.cambiar(it, { tags: t })" />
     </CCardBody>
   </CCard>
+
+  <AlbumElegirModal :visible="eligiendoAlbum !== undefined" :elegir="albumesActuales" @close="eligiendoAlbum = undefined" @elegidos="albumesElegidos" @nuevo="nuevoAlbum" />
+  <AlbumModal :visible="creandoAlbum" @close="creandoAlbum = false" @save="crearAlbum" />
 </template>

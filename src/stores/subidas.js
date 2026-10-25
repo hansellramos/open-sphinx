@@ -22,6 +22,42 @@ function fechaArchivo(f) {
   return Number.isFinite(t) && t > 0 && Date.now() - t > 10 * 60_000 ? new Date(t).toISOString() : null
 }
 
+// Miniatura local de lo que se sube (solo en este navegador; nunca se envía): 160 px, del archivo elegido.
+// Fotos con <img> (el navegador aplica el giro EXIF); videos, un cuadro cerca del inicio. Si no se puede, nada.
+const esImagen = (f) => f.type?.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif|avif)$/i.test(f.name)
+async function miniaturaLocal(file) {
+  const src = URL.createObjectURL(file)
+  try {
+    const el = await new Promise((ok, ko) => {
+      const t = setTimeout(() => ko(new Error('tarda')), 10_000)
+      if (esImagen(file)) {
+        const img = new Image()
+        img.onload = () => (clearTimeout(t), ok(img))
+        img.onerror = () => (clearTimeout(t), ko(new Error('no se pudo leer')))
+        img.src = src
+      } else {
+        const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, preload: 'auto' })
+        v.onloadeddata = () => (v.currentTime = Math.min(0.5, (v.duration || 1) / 2))
+        v.onseeked = () => (clearTimeout(t), ok(v))
+        v.onerror = () => (clearTimeout(t), ko(new Error('no se pudo leer')))
+        v.src = src
+      }
+    })
+    const w = el.naturalWidth || el.videoWidth, h = el.naturalHeight || el.videoHeight
+    if (!w || !h) return null
+    const k = 160 / Math.max(w, h)
+    const c = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) })
+    c.getContext('2d').drawImage(el, 0, 0, c.width, c.height)
+    if (el.tagName === 'VIDEO') el.removeAttribute('src')
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.7))
+    return blob ? URL.createObjectURL(blob) : null
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(src)
+  }
+}
+
 // Reducir videos al subirlos (lado corto 720 o 540; null = dejar el original). Se recuerda en este navegador.
 const esVideo = (f) => f.type?.startsWith('video/') || /\.(mov|mp4|m4v|mkv|webm|avi|3gp)$/i.test(f.name)
 function leerReducir() {
@@ -47,6 +83,7 @@ export const useSubidasStore = defineStore('subidas', () => {
   const items = ref([])
   const etiquetas = ref([]) // nombres que se ponen a lo que se agregue (opcional)
   const reducir = ref(leerReducir()) // para los videos que se agreguen
+  const albumes = ref([]) // ids de álbumes para lo que se agregue (opcional)
   watch(reducir, (x) => {
     try {
       localStorage.setItem('boveda.reducir', x ?? '')
@@ -60,10 +97,27 @@ export const useSubidasStore = defineStore('subidas', () => {
       items.value.push({
         id: ++seq, file, nombre: file.name, tam: file.size, progreso: 0, estado: 'revisando', error: null,
         tags: [...etiquetas.value], fecha: fechaDelNombre(file.name), manual: false, titulo: null, sha: null, igual: null, archivo: fechaArchivo(file),
-        video: esVideo(file), reducir: esVideo(file) ? reducir.value : null,
+        video: esVideo(file), reducir: esVideo(file) ? reducir.value : null, mini: null, albumes: [...albumes.value], nota: '',
       })
+    miniaturas()
     revisar()
   }
+
+  // Miniaturas de a una (decodificar una foto grande o un video cuesta memoria en el iPhone).
+  let haciendoMinis = false
+  async function miniaturas() {
+    if (haciendoMinis) return
+    haciendoMinis = true
+    try {
+      let it
+      while ((it = items.value.find((i) => i.file && i.mini === null && (esImagen(i.file) || esVideo(i.file))))) {
+        it.mini = (await miniaturaLocal(it.file)) ?? false
+      }
+    } finally {
+      haciendoMinis = false
+    }
+  }
+  const soltarMini = (it) => it.mini && URL.revokeObjectURL(it.mini)
 
   // Huellas de una en una (leer el archivo cuesta); al terminar cada una, a la cola de subida.
   async function revisar() {
@@ -149,6 +203,8 @@ export const useSubidasStore = defineStore('subidas', () => {
   function cambiar(it, c) {
     if ('tags' in c) it.tags = c.tags
     if ('reducir' in c) it.reducir = c.reducir
+    if ('albumes' in c) it.albumes = c.albumes
+    if ('nota' in c) it.nota = String(c.nota ?? '').slice(0, 2000)
     if ('fecha' in c) {
       it.fecha = c.fecha || null
       it.manual = true
@@ -171,6 +227,8 @@ export const useSubidasStore = defineStore('subidas', () => {
     if (it.fecha) Object.assign(datos, { takenAt: deLocal(it.fecha), manual: it.manual })
     else if (it.archivo) datos.archivo = it.archivo // solo si la foto no trae la suya (EXIF)
     if (it.titulo) datos.title = it.titulo
+    if (it.albumes.length) datos.albumes = it.albumes
+    if (it.nota.trim()) datos.nota = it.nota.trim()
     return datos
   }
 
@@ -193,7 +251,7 @@ export const useSubidasStore = defineStore('subidas', () => {
         it.ajustePendiente = true
         return
       }
-      if (it.sha) await boveda.ajustarPorHuella(it.sha, { tags: it.tags, takenAt: deLocal(it.fecha), manual: it.manual, archivo: it.fecha ? null : it.archivo, ...(it.titulo && { title: it.titulo }) })
+      if (it.sha) await boveda.ajustarPorHuella(it.sha, { tags: it.tags, takenAt: deLocal(it.fecha), manual: it.manual, archivo: it.fecha ? null : it.archivo, albumes: it.albumes, nota: it.nota.trim(), ...(it.titulo && { title: it.titulo }) })
     } catch (e) {
       console.warn('No se pudo guardar el cambio', e)
     }
@@ -230,15 +288,20 @@ export const useSubidasStore = defineStore('subidas', () => {
 
   function cancelar(it) {
     it.upload?.abort(true)
+    soltarMini(it)
     items.value = items.value.filter((i) => i !== it)
     siguiente()
   }
 
-  const limpiarListos = () => (items.value = items.value.filter((i) => i.estado !== 'listo' && i.estado !== 'duplicado'))
+  function limpiarListos() {
+    const quedan = (i) => i.estado !== 'listo' && i.estado !== 'duplicado'
+    items.value.filter((i) => !quedan(i)).forEach(soltarMini)
+    items.value = items.value.filter(quedan)
+  }
 
   window.addEventListener('beforeunload', (e) => {
     if (activa.value) e.preventDefault()
   })
 
-  return { items, etiquetas, reducir, activa, agregar, cambiar, reintentar, subirIgual, cancelar, limpiarListos }
+  return { items, etiquetas, reducir, albumes, activa, agregar, cambiar, reintentar, subirIgual, cancelar, limpiarListos }
 })

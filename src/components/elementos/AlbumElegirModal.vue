@@ -1,11 +1,12 @@
 <script setup>
 // Agregar o quitar elementos de álbumes: marca los álbumes donde deben estar (o crea uno nuevo con ellos).
+// Con `elegir` solo devuelve los álbumes marcados (para lo que todavía se está subiendo).
 import { ref, computed, watch } from 'vue'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
 
-const props = defineProps({ ids: { type: Array, default: () => [] }, visible: Boolean })
-const emit = defineEmits(['close', 'nuevo', 'listo'])
+const props = defineProps({ ids: { type: Array, default: () => [] }, visible: Boolean, elegir: Array })
+const emit = defineEmits(['close', 'nuevo', 'listo', 'elegidos'])
 const boveda = useBovedaStore()
 const toast = useToastStore()
 const marcas = ref({}) // albumId → true | false | null (algunos)
@@ -21,7 +22,7 @@ watch(
   (v) => {
     if (!v) return
     buscar.value = ''
-    marcas.value = Object.fromEntries(boveda.albumes.map((a) => [a.id, estado(a)]))
+    marcas.value = Object.fromEntries(boveda.albumes.map((a) => [a.id, props.elegir ? props.elegir.includes(a.id) : estado(a)]))
   },
 )
 const lista = computed(() => {
@@ -31,6 +32,7 @@ const lista = computed(() => {
 const cambios = computed(() => Object.fromEntries(Object.entries(marcas.value).filter(([id, x]) => x !== null && x !== estado(boveda.album(id) ?? { items: [] }))))
 
 async function guardar() {
+  if (props.elegir) return emit('elegidos', Object.keys(marcas.value).filter((id) => marcas.value[id]))
   guardando.value = true
   try {
     const c = cambios.value

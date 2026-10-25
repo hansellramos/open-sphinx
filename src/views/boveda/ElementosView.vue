@@ -79,7 +79,7 @@ const filtrados = computed(() => {
     const loc = v.m.location
     return (
       (modo.value !== 'Galeria' || clase.value === 'todo' || boveda.tipo(v) === clase.value) &&
-      (!t || [v.m.title, v.m.originalName, v.m.device, ...boveda.nombresDe(v)].some((x) => x?.toLowerCase().includes(t))) &&
+      (!t || [v.m.title, v.m.originalName, v.m.device, v.m.nota, ...boveda.nombresDe(v)].some((x) => x?.toLowerCase().includes(t))) &&
       (!d || f >= d) &&
       (!h || f <= h) &&
       (!conUbicacion.value || loc) &&
@@ -435,6 +435,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
           <div class="d-flex align-items-center gap-2 small text-body-secondary mt-1">
             <CIcon :icon="boveda.tipo(v) === 'video' ? 'cil-video' : boveda.tipo(v) === 'imagen' ? 'cil-image' : 'cil-file'" size="sm" />
             <CIcon v-if="v.m.location" icon="cil-location-pin" size="sm" title="Tiene ubicación" />
+            <CIcon v-if="v.m.nota" icon="cil-notes" size="sm" title="Tiene nota" />
             <span class="ms-auto">{{ tamano(v.size) }}</span>
           </div>
           <div v-if="v.m.tags?.length" class="d-flex flex-wrap gap-1 mt-2">
