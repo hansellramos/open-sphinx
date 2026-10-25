@@ -128,6 +128,21 @@ function fechaExif(d?: string, zona?: string) {
   return parseFecha(d.replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T') + (zona ?? ''))
 }
 
+// TEMPORAL (diagnóstico de fechas de fotos): qué formato es y qué campos de fecha trae (EXIF, XMP, IPTC). Solo
+// nombres de campos y valores de fecha/hora: nada de GPS ni del contenido.
+async function diagnosticoFecha(buf: Buffer, e: Record<string, unknown> | null) {
+  try {
+    const magia = buf.subarray(0, 12)
+    const formato = magia[0] === 0xff && magia[1] === 0xd8 ? 'jpeg' : magia.subarray(4, 8).toString('latin1') === 'ftyp' ? `heif(${magia.subarray(8, 12).toString('latin1')})` : magia.subarray(1, 4).toString('latin1') === 'PNG' ? 'png' : magia.subarray(0, 4).toString('latin1') === 'RIFF' ? 'webp?' : 'otro'
+    const todo = await exifr.parse(buf, { tiff: true, exif: true, xmp: true, iptc: true, ifd1: false, gps: false, reviveValues: false, translateValues: false, mergeOutput: true }).catch((x) => ({ _error: String(x?.message ?? x) }))
+    const fechas = Object.fromEntries(Object.entries(todo ?? {}).filter(([k]) => /date|time|offset|created|modif/i.test(k) && !/gps/i.test(k)).map(([k, v]) => [k, String(v).slice(0, 40)]))
+    const campos = Object.keys(todo ?? {}).filter((k) => !/gps|latitude|longitude/i.test(k))
+    console.log(`[fecha-diag] formato=${formato} tamaño=${buf.length} exif=${e ? 'sí' : 'no'} campos=${campos.length} [${campos.slice(0, 40).join(',')}] fechas=${JSON.stringify(fechas)}`)
+  } catch (x) {
+    console.log(`[fecha-diag] falló: ${x}`)
+  }
+}
+
 // exifr con una ruta abre el archivo y, con algunos PNG, no lo cierra: desde Node 26.12 eso tumba el proceso
 // ("FileHandle closed during garbage collection"). Por eso se le pasa el inicio del archivo ya leído (el EXIF va
 // al principio; en PNG puede ir más adelante, por eso hasta 16 MB).
@@ -142,6 +157,7 @@ async function exif(file: string) {
     await fh.close()
   }
   const e = await exifr.parse(buf, { tiff: true, exif: true, gps: true, reviveValues: false, translateValues: false }).catch(() => null)
+  await diagnosticoFecha(buf, e)
   if (!e) return { takenAt: null, location: null, device: null, orientation: 1 }
   const lat = e.latitude, lon = e.longitude
   const okGps = Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180

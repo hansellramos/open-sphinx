@@ -104,7 +104,7 @@ export async function procesar(videoId: string) {
       : img
         ? { takenAt: img.takenAt, location: img.location, device: img.device, width: img.width, height: img.height, vista: img.vista, parts }
         : { takenAt: null, location: null, device: null, parts }
-    console.log(`[worker] ${tipo}: fecha ${datos.takenAt ? 'sí' : 'no'}, ubicación ${datos.location ? 'sí' : 'no'}, equipo ${datos.device ? 'sí' : 'no'}`)
+    console.log(`[worker] ${tipo}: fecha ${datos.takenAt ?? 'no'}, ubicación ${datos.location ? 'sí' : 'no'}, equipo ${datos.device ? 'sí' : 'no'}`)
 
     // Metadatos (incluido el tipo y la fecha/ubicación/equipo) cifrados con la clave del elemento.
     // sellado: lo que el navegador mandó sellado (etiquetas, fecha); lo aplica el navegador al abrirlo. Se puede
