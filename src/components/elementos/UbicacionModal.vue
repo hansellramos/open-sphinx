@@ -1,12 +1,12 @@
 <script setup>
-// Elegir la ubicación de un elemento a mano: tocando el mapa o el punto de otro (copia su ubicación).
+// Elegir la ubicación de un elemento (o de varios a la vez, `items`) a mano: tocando el mapa o el punto de otro (copia su ubicación).
 // Se guarda cifrada como el resto de los metadatos.
 import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useBovedaStore } from '@/stores/boveda'
 
-const props = defineProps({ item: { type: Object, required: true }, visible: Boolean })
+const props = defineProps({ item: Object, items: Array, visible: Boolean })
 const emit = defineEmits(['close', 'save'])
 const boveda = useBovedaStore()
 const el = ref(null)
@@ -15,7 +15,15 @@ const origen = ref('')
 let mapa = null
 let marca = null
 
-const otros = computed(() => boveda.listos.filter((v) => v.id !== props.item.id && v.m.location))
+const lista = computed(() => props.items ?? (props.item ? [props.item] : []))
+const ids = computed(() => new Set(lista.value.map((v) => v.id)))
+const otros = computed(() => boveda.listos.filter((v) => !ids.value.has(v.id) && v.m.location))
+// La que ya tienen (si todos tienen la misma).
+const comun = computed(() => {
+  const l = lista.value.map((v) => v.m.location)
+  return l[0] && l.every((x) => x && x.lat === l[0].lat && x.lon === l[0].lon) ? l[0] : null
+})
+const conUbicacion = computed(() => lista.value.filter((v) => v.m.location).length)
 const icono = (clase) => L.divIcon({ className: '', html: `<div class="${clase}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] })
 
 function elegir(p, desde = '') {
@@ -36,7 +44,7 @@ async function abrir() {
       .addTo(mapa)
   }
   mapa.on('click', (e) => elegir({ lat: +e.latlng.lat.toFixed(6), lon: +e.latlng.lng.toFixed(6) }))
-  const actual = props.item.m.location
+  const actual = comun.value
   if (actual) elegir({ ...actual })
   const pts = [...otros.value.map((v) => v.m.location), ...(actual ? [actual] : [])]
   if (actual) mapa.setView([actual.lat, actual.lon], 15)
@@ -58,7 +66,7 @@ onBeforeUnmount(cerrar)
 
 <template>
   <CModal :visible="visible" size="lg" @close="emit('close')">
-    <CModalHeader><CModalTitle>Ubicación</CModalTitle></CModalHeader>
+    <CModalHeader><CModalTitle>Ubicación{{ lista.length > 1 ? ` · ${lista.length} elementos` : '' }}</CModalTitle></CModalHeader>
     <CModalBody>
       <p class="small text-body-secondary mb-2">Toca el punto de otra foto o video para copiar su ubicación, o toca cualquier lugar del mapa.</p>
       <div ref="el" class="mapa mapa-chico"></div>
@@ -70,7 +78,7 @@ onBeforeUnmount(cerrar)
       </div>
     </CModalBody>
     <CModalFooter>
-      <CButton v-if="item.m.location" color="danger" variant="ghost" class="me-auto" @click="emit('save', null)">Quitar ubicación</CButton>
+      <CButton v-if="conUbicacion" color="danger" variant="ghost" class="me-auto" @click="emit('save', null)">Quitar ubicación{{ lista.length > 1 ? ` (${conUbicacion})` : '' }}</CButton>
       <CButton color="secondary" variant="ghost" @click="emit('close')">Cancelar</CButton>
       <CButton color="primary" :disabled="!punto" @click="emit('save', punto)">Guardar</CButton>
     </CModalFooter>

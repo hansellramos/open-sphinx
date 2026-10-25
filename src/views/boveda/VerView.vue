@@ -24,6 +24,8 @@ import { decryptBlob } from '@shared/crypto.js'
 import { aLocal, deLocal, duracion, extension, fechaCorta, fechaHora, iconoArchivo, tamano, venceEn, vistaPrevia, etiquetaExport } from '@/lib/formato'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
+import AlbumElegirModal from '@/components/elementos/AlbumElegirModal.vue'
+import AlbumModal from '@/components/elementos/AlbumModal.vue'
 import VisorCompleto from '@/components/elementos/VisorCompleto.vue'
 import { useCompartir } from '@/lib/compartir'
 import { conRotacion, leerRotacion, sumarRotacion } from '@/lib/rotacion'
@@ -173,6 +175,14 @@ const guardarTitulo = accion(async () => {
   editando.value = false
 })
 const guardarEtiquetas = accion((nombres) => boveda.asignarEtiquetas(item.value, nombres))
+// Álbumes de este elemento.
+const eligiendoAlbumes = ref(false)
+const creandoAlbum = ref(false)
+const crearAlbumConEste = accion(async (datos) => {
+  const a = await boveda.crearAlbum(datos, [item.value.id])
+  creandoAlbum.value = false
+  toast.ok(`Álbum «${a.name}» creado`)
+})
 const favorito = accion(() => boveda.favorito(item.value))
 const guardarUbicacion = accion(async (location) => {
   await boveda.guardarMeta(item.value, { location })
@@ -406,6 +416,13 @@ onBeforeUnmount(() => {
     <CCol md="7">
       <div class="small text-body-secondary mb-1">Etiquetas</div>
       <EtiquetasEditor :model-value="boveda.nombresDe(item)" :sugerencias="boveda.etiquetas" @update:model-value="guardarEtiquetas" />
+      <div class="small text-body-secondary mt-3 mb-1">Álbumes</div>
+      <div class="d-flex flex-wrap gap-1 align-items-center">
+        <RouterLink v-for="a in boveda.albumesDe(item)" :key="a.id" :to="`/albumes/${a.id}`" class="badge rounded-pill text-bg-secondary text-decoration-none fw-normal">
+          <CIcon icon="cil-library" size="sm" class="me-1" />{{ a.name }}
+        </RouterLink>
+        <CButton color="link" size="sm" class="py-0" @click="eligiendoAlbumes = true">{{ boveda.albumesDe(item).length ? 'Cambiar' : 'Agregar a un álbum' }}</CButton>
+      </div>
     </CCol>
     <CCol md="5" class="small">
       <form v-if="cambiandoFecha" class="mb-1 d-flex align-items-center gap-2" @submit.prevent="guardarFecha">
@@ -503,4 +520,6 @@ onBeforeUnmount(() => {
   </CModal>
   <VisorCompleto v-if="visor" :ids="idsVisor" :inicial="item.id" @cerrar="cerrarVisor" />
   <UbicacionModal v-if="m && tipo !== 'archivo'" :item="item" :visible="ubicando" @close="ubicando = false" @save="guardarUbicacion" />
+  <AlbumElegirModal :visible="eligiendoAlbumes" :ids="item ? [item.id] : []" @close="eligiendoAlbumes = false" @listo="eligiendoAlbumes = false" @nuevo="eligiendoAlbumes = false; creandoAlbum = true" />
+  <AlbumModal :visible="creandoAlbum" :ids="item ? [item.id] : []" @close="creandoAlbum = false" @save="crearAlbumConEste" />
 </template>

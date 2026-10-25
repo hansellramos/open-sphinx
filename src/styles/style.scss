@@ -67,6 +67,7 @@ body { background-color: #f4f4f8; }
 .mapa-marca { width: 18px; height: 18px; border-radius: 50%; background: #5b4bd6; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
 .mapa-chico { height: 55vh; min-height: 18rem; }
 .mapa-marca-nueva { background: #e55353; }
+.mapa-marca-num { width: 22px; height: 22px; margin: -2px; color: #fff; font: 600 10px/16px system-ui, sans-serif; text-align: center; }
 .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large { background-color: rgba(91, 75, 214, .35); }
 .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div { background-color: rgba(91, 75, 214, .85); color: #fff; font-weight: 600; }
 .cortina { position: fixed; inset: 0; z-index: 99999; background: #13121f; display: flex; align-items: center; justify-content: center; }
@@ -126,3 +127,15 @@ body { background-color: #f4f4f8; }
 .subir-reducir-item { width: auto; }
 // Exportaciones de videos
 .export-mini { width: 6.5rem; border-radius: .4rem; overflow: hidden; }
+
+// Álbumes
+.albumes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 1rem .75rem; }
+.album-tile { display: block; color: inherit; text-decoration: none; }
+.album-tile .thumb { aspect-ratio: 4 / 3; border-radius: .5rem; overflow: hidden; }
+.album-tile:hover .thumb { outline: 2px solid var(--cui-primary); }
+.album-cabecera .thumb { width: 6rem; border-radius: .5rem; overflow: hidden; flex-shrink: 0; }
+.album-ubic .form-control { min-width: 0; }
+.mini.elegido, .video-card.elegido { outline: 3px solid var(--cui-primary); outline-offset: -3px; }
+.marca-sel { position: absolute; top: .3rem; left: .3rem; width: 1.4rem; height: 1.4rem; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.25); display: flex; align-items: center; justify-content: center; color: #fff; z-index: 2; }
+.elegido .marca-sel { background: var(--cui-primary); }
+.barra-seleccion { position: sticky; bottom: 0; z-index: 10; background: var(--cui-body-bg); border-top: 1px solid var(--cui-border-color); padding: .5rem 0; padding-bottom: max(.5rem, env(safe-area-inset-bottom)); }

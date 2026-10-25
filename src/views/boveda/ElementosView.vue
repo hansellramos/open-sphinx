@@ -1,5 +1,6 @@
 <script setup>
-// Galería (fotos y videos), archivos, favoritos o una etiqueta. Filtros por texto, fecha, ubicación y zona
+// Galería (fotos y videos), archivos, favoritos, una etiqueta o un álbum. «Seleccionar» elige varios para
+// cambiarles a la vez la fecha, las etiquetas o la ubicación, y agregarlos a álbumes (o quitarlos del abierto). Filtros por texto, fecha, ubicación y zona
 // del mapa; todo se hace aquí sobre los metadatos ya descifrados. Fotos y videos en miniaturas (cuadritos por día,
 // para el celular) o en tarjetas por mes; se muestran por fecha y el nombre queda en los detalles. Los archivos, en lista.
 import { ref, computed, onMounted, watch } from 'vue'
@@ -10,7 +11,11 @@ import { api } from '@/services/api'
 import PageHeader from '@/components/common/PageHeader.vue'
 import Miniatura from '@/components/elementos/Miniatura.vue'
 import EtiquetasEditor from '@/components/elementos/EtiquetasEditor.vue'
-import { ESTADOS, dia, fecha, fechaCorta, iconoArchivo, mesAnio, tamano } from '@/lib/formato'
+import AlbumModal from '@/components/elementos/AlbumModal.vue'
+import AlbumElegirModal from '@/components/elementos/AlbumElegirModal.vue'
+import EdicionMasivaModal from '@/components/elementos/EdicionMasivaModal.vue'
+import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
+import { ESTADOS, dia, fecha, fechaCorta, iconoArchivo, mesAnio, rangoFechas, tamano } from '@/lib/formato'
 
 const route = useRoute()
 const router = useRouter()
@@ -44,19 +49,23 @@ watch(vista, (x) => {
   } catch {}
 })
 
-const modo = computed(() => route.name) // Galeria | Archivos | Favoritos | Etiqueta
+const modo = computed(() => route.name) // Galeria | Archivos | Favoritos | Etiqueta | Album
 const enLista = computed(() => modo.value === 'Archivos')
 const conPendientes = computed(() => modo.value === 'Galeria' || modo.value === 'Archivos')
 const etq = computed(() => (modo.value === 'Etiqueta' ? boveda.etiqueta(route.params.id) : null))
+const alb = computed(() => (modo.value === 'Album' ? boveda.album(route.params.id) : null))
+// ?agregar=<álbum>: se eligen elementos para agregarlos a ese álbum.
+const destino = computed(() => (route.query.agregar ? boveda.album(String(route.query.agregar)) : null))
 const zona = computed(() => {
   const z = String(route.query.zona ?? '').split(',').map(Number)
   return z.length === 4 && z.every(Number.isFinite) ? { s: z[0], w: z[1], n: z[2], e: z[3] } : null
 })
-const titulo = computed(() => ({ Galeria: 'Fotos y videos', Archivos: 'Archivos', Favoritos: 'Favoritos' })[modo.value] ?? etq.value?.name ?? '')
+const titulo = computed(() => ({ Galeria: 'Fotos y videos', Archivos: 'Archivos', Favoritos: 'Favoritos' })[modo.value] ?? etq.value?.name ?? alb.value?.name ?? '')
 
 const base = computed(() => {
   if (modo.value === 'Favoritos') return boveda.favoritos
   if (modo.value === 'Etiqueta') return boveda.listos.filter((v) => v.m.tags?.includes(route.params.id))
+  if (modo.value === 'Album') return alb.value?.elementos ?? []
   if (modo.value === 'Archivos') return boveda.archivos
   return boveda.galeria
 })
@@ -86,6 +95,7 @@ const filtrados = computed(() => {
 // Agrupado por mes de la fecha en que se tomó/grabó.
 // Al abrir uno, el visor pasa al anterior/siguiente en este mismo orden y con estos filtros.
 function abrir(v) {
+  if (sel.value) return elegir(v)
   boveda.secuencia = filtrados.value.filter((x) => x.m).map((x) => x.id)
   router.push(`/ver/${v.id}`)
 }
@@ -135,17 +145,131 @@ const reintentar = accion(async (v) => {
   boveda.cargar(true)
 })
 
-onMounted(() => boveda.cargar(true).catch((e) => toast.error(e)))
+// ---------- selección y álbumes ----------
+const sel = ref(null) // Set de ids mientras se selecciona
+const nSel = computed(() => sel.value?.size ?? 0)
+const idsSel = computed(() => [...(sel.value ?? [])])
+const elegir = (v) => (sel.value.has(v.id) ? sel.value.delete(v.id) : sel.value.add(v.id))
+const todosElegidos = computed(() => filtrados.value.length > 0 && filtrados.value.every((v) => sel.value?.has(v.id)))
+const elegirTodos = () => (sel.value = new Set(todosElegidos.value ? [] : filtrados.value.map((v) => v.id)))
+function empezarSeleccion() {
+  sel.value = new Set()
+}
+function terminarSeleccion() {
+  sel.value = null
+  if (route.query.agregar) router.replace({ query: {} })
+}
+const albumes = ref(null) // ids para el selector de álbumes
+const masiva = ref(null) // fecha | etiquetas (a los elegidos)
+const ubicandoVarios = ref(false)
+const elegidos = computed(() => idsSel.value.map((id) => boveda.listos.find((v) => v.id === id)).filter(Boolean))
+const ubicables = computed(() => elegidos.value.filter((v) => boveda.tipo(v) !== 'archivo'))
+const masivaLista = () => {
+  masiva.value = null
+  terminarSeleccion()
+}
+const ubicarVarios = accion(async (punto) => {
+  const vs = ubicables.value
+  ubicandoVarios.value = false
+  await boveda.ubicacionVarios(vs, punto)
+  toast.ok(punto ? `Ubicación puesta a ${plural(vs.length)}` : `Ubicación quitada a ${plural(vs.length)}`)
+  terminarSeleccion()
+})
+const nuevoAlbum = ref(null) // { ids } para crear uno con esos elementos
+const editandoAlbum = ref(false)
+const borrandoAlbum = ref(false)
+const crearAlbum = accion(async (datos) => {
+  const a = await boveda.crearAlbum(datos, nuevoAlbum.value.ids)
+  nuevoAlbum.value = null
+  toast.ok(`Álbum «${a.name}» creado`)
+  if (sel.value) terminarSeleccion()
+})
+const guardarAlbum = accion(async (datos) => {
+  await boveda.editarAlbum(alb.value.id, datos)
+  editandoAlbum.value = false
+})
+const confirmarBorrarAlbum = accion(async () => {
+  await boveda.borrarAlbum(alb.value.id)
+  borrandoAlbum.value = editandoAlbum.value = false
+  toast.ok('Álbum borrado (sus fotos siguen en la bóveda)')
+  router.replace('/albumes')
+})
+const agregarADestino = accion(async () => {
+  const a = destino.value
+  await boveda.agregarAAlbum(a.id, idsSel.value)
+  toast.ok(`${plural(nSel.value)} en «${a.name}»`)
+  sel.value = null
+  router.replace(`/albumes/${a.id}`)
+})
+const quitarDelAlbum = accion(async (ids) => {
+  await boveda.quitarDeAlbum(alb.value.id, ids)
+  toast.ok(ids.length === 1 ? 'Quitado del álbum' : `${ids.length} quitados del álbum`)
+  if (sel.value) sel.value = new Set()
+})
+const usarDePortada = accion(async (id) => {
+  await boveda.portadaAlbum(alb.value.id, id)
+  toast.ok('Portada cambiada')
+  if (sel.value) sel.value = new Set()
+})
+// Agregar fotos a un álbum: la galería en modo selección (filtrada por sus fechas si se eligieron a mano).
+function agregarFotos() {
+  router.push({ path: '/galeria', query: { agregar: alb.value.id } })
+}
+function prepararDestino() {
+  if (!route.query.agregar) return (sel.value = null)
+  sel.value = new Set()
+  const f = boveda.album(String(route.query.agregar))?.fechas
+  if (f) {
+    desde.value = f.desde
+    hasta.value = f.hasta
+  }
+}
+const lugar = (u) => u.nombre || `${u.lat.toFixed(3)}, ${u.lon.toFixed(3)}`
+const zonaDe = (u) => [u.lat - 0.01, u.lon - 0.01, u.lat + 0.01, u.lon + 0.01].map((x) => x.toFixed(5)).join(',')
+
+onMounted(async () => {
+  try {
+    await boveda.cargar(true)
+    prepararDestino()
+  } catch (e) {
+    toast.error(e)
+  }
+})
 watch(() => route.fullPath, () => (q.value = ''))
+watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.cargado && prepararDestino())
 </script>
 
 <template>
   <RouterLink v-if="modo === 'Etiqueta'" to="/etiquetas" class="small text-decoration-none d-inline-block mb-2"><CIcon icon="cil-arrow-left" class="me-1" />Etiquetas</RouterLink>
+  <RouterLink v-if="modo === 'Album'" to="/albumes" class="small text-decoration-none d-inline-block mb-2"><CIcon icon="cil-arrow-left" class="me-1" />Álbumes</RouterLink>
+  <CAlert v-if="destino" color="primary" class="d-flex align-items-center gap-2 py-2">
+    <CIcon icon="cil-image-plus" />
+    <span>Elige lo que quieres agregar a <strong>{{ destino.name }}</strong><template v-if="destino.fechas"> (filtrado por sus fechas)</template>.</span>
+  </CAlert>
   <PageHeader :title="titulo" :subtitle="filtrados.length === base.length ? plural(base.length) : `${filtrados.length} de ${plural(base.length)}`">
     <CFormInput v-model="q" placeholder="Buscar…" style="max-width: 14rem" />
     <CButton :color="hayFiltros ? 'primary' : 'secondary'" variant="outline" @click="verFiltros = !verFiltros"><CIcon icon="cil-calendar" class="me-1" />Filtros</CButton>
-    <CButton color="primary" @click="router.push('/subir')"><CIcon icon="cil-cloud-upload" class="me-1" />Subir</CButton>
+    <CButton v-if="!sel && base.length" color="secondary" variant="outline" @click="empezarSeleccion"><CIcon icon="cil-check-circle" class="me-1" />Seleccionar</CButton>
+    <CButton v-if="modo === 'Album' && alb" color="primary" @click="agregarFotos"><CIcon icon="cil-image-plus" class="me-1" />Agregar fotos</CButton>
+    <CButton v-else-if="modo !== 'Album'" color="primary" @click="router.push('/subir')"><CIcon icon="cil-cloud-upload" class="me-1" />Subir</CButton>
   </PageHeader>
+
+  <p v-if="modo === 'Album' && boveda.cargado && !alb" class="text-body-secondary">Ese álbum ya no existe.</p>
+  <CCard v-if="alb" class="mb-3">
+    <CCardBody class="d-flex gap-3 align-items-start album-cabecera py-2">
+      <Miniatura v-if="alb.portadaItem" :item="alb.portadaItem" />
+      <div class="flex-grow-1 min-w-0 small">
+        <div v-if="alb.descripcion" class="mb-1" style="white-space: pre-line">{{ alb.descripcion }}</div>
+        <div v-if="alb.rango" class="text-body-secondary"><CIcon icon="cil-calendar" size="sm" class="me-1" />{{ rangoFechas(alb.rango) }}<span v-if="!alb.fechas"> (de sus fotos)</span></div>
+        <div v-if="alb.ubicaciones.length" class="d-flex flex-wrap gap-1 mt-1">
+          <RouterLink v-for="(u, i) in alb.ubicaciones" :key="i" :to="`/mapa?zona=${zonaDe(u)}`" class="badge rounded-pill text-bg-light text-decoration-none fw-normal">
+            <CIcon icon="cil-location-pin" size="sm" class="me-1" />{{ lugar(u) }}
+          </RouterLink>
+        </div>
+      </div>
+      <CButton color="secondary" variant="ghost" size="sm" title="Editar el álbum" @click="editandoAlbum = true"><CIcon icon="cil-pencil" /></CButton>
+    </CCardBody>
+  </CCard>
 
   <CCard v-if="verFiltros || hayFiltros" class="mb-3">
     <CCardBody class="d-flex flex-wrap align-items-end gap-3 py-2">
@@ -213,9 +337,10 @@ watch(() => route.fullPath, () => (q.value = ''))
   <div v-if="!boveda.cargado" class="text-center py-5"><CSpinner /></div>
   <CCard v-else-if="!base.length" class="text-center py-5">
     <CCardBody>
-      <CIcon :icon="{ Favoritos: 'cil-star', Archivos: 'cil-folder', Etiqueta: 'cil-tags' }[modo] ?? 'cil-image'" size="3xl" class="text-secondary mb-3" />
-      <p class="mb-3">{{ { Favoritos: 'Aún no marcas favoritos: toca la estrella de cualquier elemento.', Etiqueta: 'Nada tiene esta etiqueta.', Archivos: 'Todavía no hay archivos.' }[modo] ?? 'Todavía no hay fotos ni videos.' }}</p>
+      <CIcon :icon="{ Favoritos: 'cil-star', Archivos: 'cil-folder', Etiqueta: 'cil-tags', Album: 'cil-library' }[modo] ?? 'cil-image'" size="3xl" class="text-secondary mb-3" />
+      <p class="mb-3">{{ { Favoritos: 'Aún no marcas favoritos: toca la estrella de cualquier elemento.', Etiqueta: 'Nada tiene esta etiqueta.', Archivos: 'Todavía no hay archivos.', Album: 'Este álbum está vacío.' }[modo] ?? 'Todavía no hay fotos ni videos.' }}</p>
       <CButton v-if="conPendientes" color="primary" @click="router.push('/subir')">Subir el primero</CButton>
+      <CButton v-if="alb" color="primary" @click="agregarFotos">Agregar fotos</CButton>
     </CCardBody>
   </CCard>
   <p v-else-if="!filtrados.length" class="text-body-secondary">Nada coincide con los filtros.</p>
@@ -224,7 +349,8 @@ watch(() => route.fullPath, () => (q.value = ''))
     <template v-for="g in grupos" :key="g.k">
       <div class="grupo-mes">{{ g.k }}</div>
       <CListGroup>
-        <CListGroupItem v-for="v in g.items" :key="v.id" class="d-flex align-items-center gap-3 archivo-fila" @click="abrir(v)">
+        <CListGroupItem v-for="v in g.items" :key="v.id" class="d-flex align-items-center gap-3 archivo-fila" :active="sel?.has(v.id)" @click="abrir(v)">
+          <CIcon v-if="sel" :icon="sel.has(v.id) ? 'cil-check-circle' : 'cil-circle'" class="flex-shrink-0" />
           <CIcon :icon="iconoArchivo(v.m.originalName, v.m.mime ?? '')" size="xl" class="text-body-secondary flex-shrink-0" />
           <div class="flex-grow-1 min-w-0">
             <div class="text-truncate fw-semibold" :title="v.m.title">{{ v.m.title }}</div>
@@ -241,6 +367,9 @@ watch(() => route.fullPath, () => (q.value = ''))
             <CDropdownMenu>
               <CDropdownItem as="button" @click="etiquetar = { v, nombres: boveda.nombresDe(v) }"><CIcon icon="cil-tags" class="me-2" />Etiquetas</CDropdownItem>
               <CDropdownItem as="button" @click="editar = { v, title: v.m.title }"><CIcon icon="cil-pencil" class="me-2" />Renombrar</CDropdownItem>
+              <CDropdownItem as="button" @click="albumes = [v.id]"><CIcon icon="cil-library" class="me-2" />Álbumes…</CDropdownItem>
+              <CDropdownItem v-if="alb && boveda.tipo(v) !== 'archivo'" as="button" @click="usarDePortada(v.id)"><CIcon icon="cil-image" class="me-2" />Usar como portada</CDropdownItem>
+              <CDropdownItem v-if="alb" as="button" @click="quitarDelAlbum([v.id])"><CIcon icon="cil-minus" class="me-2" />Quitar del álbum</CDropdownItem>
               <CDropdownItem as="button" class="text-danger" @click="borrar = v"><CIcon icon="cil-trash" class="me-2" />Borrar</CDropdownItem>
             </CDropdownMenu>
           </CDropdown>
@@ -252,8 +381,9 @@ watch(() => route.fullPath, () => (q.value = ''))
     <template v-for="g in grupos" :key="g.k">
       <div class="grupo-dia">{{ g.k }}</div>
       <div class="mini-grid">
-        <button v-for="v in g.items" :key="v.id" type="button" class="mini" :title="fechaCorta(boveda.fechaDe(v))" @click="abrir(v)">
+        <button v-for="v in g.items" :key="v.id" type="button" class="mini" :class="{ elegido: sel?.has(v.id) }" :title="fechaCorta(boveda.fechaDe(v))" :aria-pressed="sel ? sel.has(v.id) : undefined" @click="abrir(v)">
           <Miniatura :item="v">
+            <span v-if="sel" class="marca-sel"><CIcon v-if="sel.has(v.id)" icon="cil-check-alt" size="sm" /></span>
             <CIcon v-if="v.m.favorite" icon="cil-star" size="sm" class="mini-fav" />
           </Miniatura>
         </button>
@@ -263,8 +393,9 @@ watch(() => route.fullPath, () => (q.value = ''))
   <template v-for="g in grupos" v-else :key="g.k">
     <div class="grupo-mes">{{ g.k }}</div>
     <div class="video-grid">
-      <CCard v-for="v in g.items" :key="v.id" class="video-card" @click="abrir(v)">
+      <CCard v-for="v in g.items" :key="v.id" class="video-card" :class="{ elegido: sel?.has(v.id) }" @click="abrir(v)">
         <Miniatura :item="v">
+          <span v-if="sel" class="marca-sel"><CIcon v-if="sel.has(v.id)" icon="cil-check-alt" size="sm" /></span>
           <button type="button" class="fav" :class="{ on: v.m.favorite }" :title="v.m.favorite ? 'Quitar de favoritos' : 'Favorito'" @click.stop="favorito(v)">
             <CIcon icon="cil-star" :class="{ 'opacity-50': !v.m.favorite }" />
           </button>
@@ -277,6 +408,9 @@ watch(() => route.fullPath, () => (q.value = ''))
               <CDropdownMenu>
                 <CDropdownItem as="button" @click="etiquetar = { v, nombres: boveda.nombresDe(v) }"><CIcon icon="cil-tags" class="me-2" />Etiquetas</CDropdownItem>
                 <CDropdownItem as="button" @click="editar = { v, title: v.m.title }"><CIcon icon="cil-pencil" class="me-2" />Renombrar</CDropdownItem>
+                <CDropdownItem as="button" @click="albumes = [v.id]"><CIcon icon="cil-library" class="me-2" />Álbumes…</CDropdownItem>
+                <CDropdownItem v-if="alb && boveda.tipo(v) !== 'archivo'" as="button" @click="usarDePortada(v.id)"><CIcon icon="cil-image" class="me-2" />Usar como portada</CDropdownItem>
+                <CDropdownItem v-if="alb" as="button" @click="quitarDelAlbum([v.id])"><CIcon icon="cil-minus" class="me-2" />Quitar del álbum</CDropdownItem>
                 <CDropdownItem as="button" class="text-danger" @click="borrar = v"><CIcon icon="cil-trash" class="me-2" />Borrar</CDropdownItem>
               </CDropdownMenu>
             </CDropdown>
@@ -296,6 +430,50 @@ watch(() => route.fullPath, () => (q.value = ''))
     </div>
   </template>
   <div class="mb-4"></div>
+
+  <div v-if="sel" class="barra-seleccion d-flex flex-wrap align-items-center gap-2">
+    <span class="fw-semibold me-1">{{ nSel }} {{ nSel === 1 ? 'elegido' : 'elegidos' }}</span>
+    <CButton color="link" size="sm" class="px-1" @click="elegirTodos">{{ todosElegidos ? 'Ninguno' : `Todos (${filtrados.length})` }}</CButton>
+    <div class="d-flex flex-wrap gap-2 ms-auto">
+      <CButton color="secondary" variant="ghost" @click="terminarSeleccion">Cancelar</CButton>
+      <template v-if="destino">
+        <CButton color="primary" :disabled="!nSel" @click="agregarADestino">Agregar a «{{ destino.name }}»</CButton>
+      </template>
+      <template v-else>
+        <CButton v-if="alb" color="secondary" variant="outline" :disabled="nSel !== 1" @click="usarDePortada(idsSel[0])">Portada</CButton>
+        <CButton v-if="alb" color="danger" variant="outline" :disabled="!nSel" @click="quitarDelAlbum(idsSel)">Quitar del álbum</CButton>
+        <CDropdown placement="top-end">
+          <CDropdownToggle color="secondary" variant="outline" :disabled="!nSel">Cambiar</CDropdownToggle>
+          <CDropdownMenu>
+            <CDropdownItem as="button" @click="masiva = 'fecha'"><CIcon icon="cil-calendar" class="me-2" />Fecha…</CDropdownItem>
+            <CDropdownItem as="button" @click="masiva = 'etiquetas'"><CIcon icon="cil-tags" class="me-2" />Etiquetas…</CDropdownItem>
+            <CDropdownItem v-if="ubicables.length" as="button" @click="ubicandoVarios = true"><CIcon icon="cil-location-pin" class="me-2" />Ubicación…</CDropdownItem>
+          </CDropdownMenu>
+        </CDropdown>
+        <CButton color="primary" :disabled="!nSel" @click="albumes = idsSel"><CIcon icon="cil-library" class="me-1" />Álbumes…</CButton>
+      </template>
+    </div>
+  </div>
+
+  <AlbumElegirModal
+    :visible="!!albumes"
+    :ids="albumes ?? []"
+    @close="albumes = null"
+    @listo="albumes = null; sel && terminarSeleccion()"
+    @nuevo="nuevoAlbum = { ids: albumes }; albumes = null"
+  />
+  <EdicionMasivaModal :modo="masiva" :items="elegidos" @close="masiva = null" @listo="masivaLista" />
+  <UbicacionModal :visible="ubicandoVarios" :items="ubicables" @close="ubicandoVarios = false" @save="ubicarVarios" />
+  <AlbumModal :visible="!!nuevoAlbum" :ids="nuevoAlbum?.ids ?? []" @close="nuevoAlbum = null" @save="crearAlbum" />
+  <AlbumModal :visible="editandoAlbum" :album="alb" @close="editandoAlbum = false" @save="guardarAlbum" @borrar="borrandoAlbum = true" />
+  <CModal :visible="borrandoAlbum" alignment="center" @close="borrandoAlbum = false">
+    <CModalHeader><CModalTitle>¿Borrar el álbum?</CModalTitle></CModalHeader>
+    <CModalBody>Se borra el álbum <strong>{{ alb?.name }}</strong>. Sus fotos y videos <strong>no</strong> se borran: siguen en la bóveda.</CModalBody>
+    <CModalFooter>
+      <CButton color="secondary" variant="ghost" @click="borrandoAlbum = false">Cancelar</CButton>
+      <CButton color="danger" @click="confirmarBorrarAlbum">Borrar álbum</CButton>
+    </CModalFooter>
+  </CModal>
 
   <CModal :visible="!!editar" @close="editar = null" alignment="center">
     <CModalHeader><CModalTitle>Renombrar</CModalTitle></CModalHeader>

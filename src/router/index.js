@@ -15,6 +15,8 @@ const routes = [
       { path: 'favoritos', name: 'Favoritos', component: () => import('@/views/boveda/ElementosView.vue') },
       { path: 'etiquetas', name: 'Etiquetas', component: () => import('@/views/boveda/EtiquetasView.vue') },
       { path: 'etiquetas/:id', name: 'Etiqueta', component: () => import('@/views/boveda/ElementosView.vue') },
+      { path: 'albumes', name: 'Albumes', component: () => import('@/views/boveda/AlbumesView.vue') },
+      { path: 'albumes/:id', name: 'Album', component: () => import('@/views/boveda/ElementosView.vue') },
       { path: 'mapa', name: 'Mapa', component: () => import('@/views/boveda/MapaView.vue') },
       { path: 'ver/:id', name: 'Ver', component: () => import('@/views/boveda/VerView.vue') },
       // Enlaces de antes (cuando solo había videos)

@@ -12,12 +12,13 @@ const fijos = computed(() => [
   { to: '/galeria', name: 'Fotos y videos', icon: 'cil-image', n: boveda.galeria.length },
   { to: '/archivos', name: 'Archivos', icon: 'cil-folder', n: boveda.archivos.length },
   { to: '/favoritos', name: 'Favoritos', icon: 'cil-star', n: boveda.favoritos.length },
+  { to: '/albumes', name: 'Álbumes', icon: 'cil-library', n: boveda.albumes.length },
   { to: '/etiquetas', name: 'Etiquetas', icon: 'cil-tags', n: boveda.etiquetas.length },
   { to: '/mapa', name: 'Mapa', icon: 'cil-map' },
   { to: '/subir', name: 'Subir', icon: 'cil-cloud-upload' },
   { to: '/exportados', name: 'Exportaciones', icon: 'cil-share-all' },
 ])
-const activo = (to) => route.path === to || (to === '/etiquetas' && route.path.startsWith('/etiquetas/'))
+const activo = (to) => route.path === to || (['/etiquetas', '/albumes'].includes(to) && route.path.startsWith(`${to}/`))
 </script>
 
 <template>

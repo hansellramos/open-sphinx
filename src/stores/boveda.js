@@ -1,5 +1,5 @@
 // Contenido de la bóveda descifrado en memoria: metadatos de cada elemento —video, foto o archivo— (tipo,
-// título, fecha, ubicación, equipo, etiquetas, favorito) y el catálogo de etiquetas. El servidor solo guarda esto cifrado,
+// título, fecha, ubicación, equipo, etiquetas, favorito) y el catálogo de etiquetas y álbumes. El servidor solo guarda esto cifrado,
 // así que se carga todo de una vez y se filtra aquí. Al bloquear se borra.
 import { ref, computed, watch, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
@@ -17,7 +17,7 @@ const normalizar = (n) => String(n ?? '').trim().replace(/\s+/g, ' ').slice(0, 4
 export const useBovedaStore = defineStore('boveda', () => {
   const auth = useAuthStore()
   const items = ref([]) // { id, size, status, error, createdAt, keyWrap, meta, m }
-  const catalogo = ref({ v: 1, tags: [] })
+  const catalogo = ref({ v: 1, tags: [], albumes: [] })
   const cargado = ref(false)
   const metaKey = shallowRef(null)
   const thumbs = new Map() // id → blob URL
@@ -73,6 +73,7 @@ export const useBovedaStore = defineStore('boveda', () => {
       publicKey = vault.publicKey
       metaKey.value ??= await asegurarMetaKey(vault)
       if (vault.catalog) catalogo.value = await decryptJSON(metaKey.value, vault.catalog)
+      catalogo.value.albumes ??= []
       const prev = new Map(items.value.map((v) => [v.id, v]))
       items.value = await Promise.all(lista.map((v) => descifrar(v, prev.get(v.id))))
       await migrarLegado(lista)
@@ -230,6 +231,118 @@ export const useBovedaStore = defineStore('boveda', () => {
     await guardarCatalogo()
   }
 
+  // ---------- álbumes (en el catálogo cifrado) ----------
+  // { id, name, descripcion, items: [ids], portada: id | null, fechas: null (las de sus fotos) | { desde, hasta }
+  //   (YYYY-MM-DD, elegidas a mano), ubicaciones: [{ lat, lon, nombre }], creado }
+  // Lo que se borró de la bóveda se ignora (y se limpia al guardar el álbum).
+  const porId = computed(() => new Map(listos.value.map((v) => [v.id, v])))
+  const albumes = computed(() =>
+    catalogo.value.albumes
+      .map((a) => {
+        const elementos = a.items.map((id) => porId.value.get(id)).filter(Boolean)
+        const fechas = elementos.map((v) => fechaDe(v)).sort()
+        const portada = porId.value.get(a.portada) && a.items.includes(a.portada) ? porId.value.get(a.portada) : elementos.reduce((x, v) => (!x || fechaDe(v) > fechaDe(x) ? v : x), null)
+        const rango = a.fechas ?? (fechas.length ? { desde: fechas[0], hasta: fechas.at(-1) } : null)
+        return { ...a, elementos, total: elementos.length, portadaItem: portada, rango }
+      })
+      .sort((x, y) => String(y.rango?.hasta ?? y.creado).localeCompare(String(x.rango?.hasta ?? x.creado))),
+  )
+  const album = (id) => albumes.value.find((a) => a.id === id)
+  const albumesDe = (v) => albumes.value.filter((a) => a.items.includes(v.id))
+  const crudo = (id) => {
+    const a = catalogo.value.albumes.find((x) => x.id === id)
+    if (!a) throw new Error('Ese álbum ya no existe')
+    return a
+  }
+  const limpiarAlbum = (a) => {
+    a.items = [...new Set(a.items)].filter((id) => porId.value.has(id))
+    if (a.portada && !a.items.includes(a.portada)) a.portada = null
+  }
+  const datosAlbum = (d) => ({
+    name: String(d.name ?? '').trim().replace(/\s+/g, ' ').slice(0, 80),
+    descripcion: String(d.descripcion ?? '').trim().slice(0, 500),
+    fechas: d.fechas?.desde && d.fechas?.hasta ? { desde: d.fechas.desde <= d.fechas.hasta ? d.fechas.desde : d.fechas.hasta, hasta: d.fechas.desde <= d.fechas.hasta ? d.fechas.hasta : d.fechas.desde } : null,
+    ubicaciones: (d.ubicaciones ?? []).map((u) => ({ lat: +u.lat, lon: +u.lon, nombre: String(u.nombre ?? '').trim().slice(0, 80) })).filter((u) => Number.isFinite(u.lat) && Number.isFinite(u.lon)).slice(0, 50),
+  })
+
+  async function crearAlbum(d, ids = []) {
+    const datos = datosAlbum(d)
+    if (!datos.name) throw new Error('Ponle un nombre al álbum')
+    const a = { id: uuid(), ...datos, items: [...new Set(ids)], portada: d.portada ?? null, creado: new Date().toISOString() }
+    catalogo.value.albumes.push(a)
+    await guardarCatalogo()
+    return a
+  }
+  async function editarAlbum(id, d) {
+    const datos = datosAlbum(d)
+    if (!datos.name) throw new Error('Ponle un nombre al álbum')
+    Object.assign(crudo(id), datos)
+    await guardarCatalogo()
+  }
+  async function borrarAlbum(id) {
+    catalogo.value.albumes = catalogo.value.albumes.filter((a) => a.id !== id)
+    await guardarCatalogo()
+  }
+  async function agregarAAlbum(id, ids) {
+    const a = crudo(id)
+    a.items = [...a.items, ...ids]
+    limpiarAlbum(a)
+    await guardarCatalogo()
+  }
+  async function quitarDeAlbum(id, ids) {
+    const a = crudo(id)
+    a.items = a.items.filter((x) => !ids.includes(x))
+    limpiarAlbum(a)
+    await guardarCatalogo()
+  }
+  async function portadaAlbum(id, itemId) {
+    const a = crudo(id)
+    if (itemId && !a.items.includes(itemId)) throw new Error('La portada tiene que estar en el álbum')
+    a.portada = itemId
+    await guardarCatalogo()
+  }
+  // Varios álbumes a la vez para unos elementos: { albumId: true (agregar) | false (quitar) }.
+  async function asignarAlbumes(ids, cambios) {
+    for (const [id, poner] of Object.entries(cambios)) {
+      const a = crudo(id)
+      a.items = poner ? [...a.items, ...ids] : a.items.filter((x) => !ids.includes(x))
+      limpiarAlbum(a)
+    }
+    await guardarCatalogo()
+  }
+
+  // ---------- cambios a varios a la vez ----------
+  // cambiosDe(v) → cambios para sus metadatos (o null si no cambia). De a 4 en paralelo (cada uno se cifra con su clave).
+  async function editarVarios(vs, cambiosDe, progreso) {
+    const ids = vs.map((v) => v.id)
+    let i = 0, hechos = 0
+    const trabajar = async () => {
+      while (i < ids.length) {
+        const id = ids[i++]
+        const v = items.value.find((x) => x.id === id) // la versión más reciente
+        const c = v?.m && cambiosDe(v)
+        if (c) await guardarMeta(v, c)
+        progreso?.(++hechos, ids.length)
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, trabajar))
+  }
+  // takenAt: ISO, o null para quitarla (queda la de subida).
+  const fechaVarios = (vs, takenAt, progreso) => editarVarios(vs, () => ({ takenAt, fechaOrigen: undefined }), progreso)
+  const ubicacionVarios = (vs, location, progreso) => editarVarios(vs, () => ({ location }), progreso)
+  async function etiquetasVarios(vs, agregar, quitar, progreso) {
+    const nuevas = await etiquetasPara(agregar)
+    await editarVarios(
+      vs,
+      (v) => {
+        const antes = v.m.tags ?? []
+        const tags = [...new Set([...antes.filter((id) => !quitar.includes(id)), ...nuevas])]
+        return tags.length === antes.length && tags.every((id) => antes.includes(id)) ? null : { tags }
+      },
+      progreso,
+    )
+  }
+
   const favorito = (v) => guardarMeta(v, { favorite: !v.m.favorite })
   const renombrar = (v, title) => guardarMeta(v, { title: String(title).trim().slice(0, 200) || v.m.title })
 
@@ -340,7 +453,7 @@ export const useBovedaStore = defineStore('boveda', () => {
     clearTimeout(timer)
     items.value = []
     secuencia.value = []
-    catalogo.value = { v: 1, tags: [] }
+    catalogo.value = { v: 1, tags: [], albumes: [] }
     metaKey.value = null
     cargado.value = false
     for (const u of thumbs.values()) URL.revokeObjectURL(u)
@@ -355,5 +468,7 @@ export const useBovedaStore = defineStore('boveda', () => {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
     huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     favorito, renombrar, borrar, thumbUrl, publicKey: () => publicKey,
+    editarVarios, fechaVarios, ubicacionVarios, etiquetasVarios,
+    albumes, album, albumesDe, crearAlbum, editarAlbum, borrarAlbum, agregarAAlbum, quitarDeAlbum, portadaAlbum, asignarAlbumes,
   }
 })

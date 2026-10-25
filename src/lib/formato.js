@@ -92,3 +92,16 @@ export function venceEn(d) {
   const dias = Math.round(h / 24)
   return `vence en ${dias} ${dias === 1 ? 'día' : 'días'}`
 }
+
+// Rango de fechas de un álbum: { desde, hasta } (ISO o YYYY-MM-DD, que es día local, no UTC).
+const aFecha = (d) => new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00` : d)
+export function rangoFechas(r) {
+  if (!r) return ''
+  const a = aFecha(r.desde), b = aFecha(r.hasta)
+  if (a.toDateString() === b.toDateString()) return fecha(a)
+  const mismoAnio = a.getFullYear() === b.getFullYear()
+  const ini = a.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', ...(!mismoAnio && { year: 'numeric' }) })
+  return `${ini} – ${fecha(b)}`
+}
+// YYYY-MM-DD local de una fecha (para los <input type="date">).
+export const diaLocal = (d) => aFecha(d).toLocaleDateString('sv')
