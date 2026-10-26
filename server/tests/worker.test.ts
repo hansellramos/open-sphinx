@@ -317,7 +317,7 @@ test('recomprimir sin cambiar tamaño: conserva 60 cps y le pone tope a la tasa 
   assert.ok(mbps < 4.2 && hecha.size < antes / 2.5, `tasa ${mbps.toFixed(1)} Mbps (antes ${((antes * 8) / 6 / 1e6).toFixed(1)})`)
 })
 
-test('usar una exportación como original: reemplaza los fragmentos, conserva la miniatura y borra el original', async () => {
+test('usar una exportación como original: reemplaza los fragmentos, conserva la miniatura y el original va a la papelera', async () => {
   const priv = await nuevaBoveda()
   const { cicloExportacion, reemplazarOriginal, exportDir } = await import('../lib/exportar.ts')
   const uploadId = 'up-reemplazar'
@@ -348,6 +348,61 @@ test('usar una exportación como original: reemplaza los fragmentos, conserva la
   assert.equal(dimensiones(mp4), 'h264,854,480')
   const d = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).toString())
   assert.ok(Math.abs(d - 8) < 0.6, `duración ${d}`)
+
+  // El original quedó en la papelera (5 días) con sus metadatos; se puede volver a él.
+  const ant = JSON.parse(nuevo.anterior)
+  assert.equal(ant.meta, listo.meta)
+  assert.equal(ant.segments, listo.segments)
+  assert.ok(readdirSync(path.join(vdir, 'papelera')).every((f) => f === 'index.m3u8' || f.endsWith('.enc')), 'en la papelera solo cifrado')
+  const { restaurarOriginal, vencerPapelera } = await import('../lib/exportar.ts')
+  await prisma.video.update({ where: { id: v.id }, data: { meta: 'meta-nueva' } }) // lo que el navegador guarda tras reemplazar
+  const vuelto = await restaurarOriginal(v.id)
+  assert.equal(vuelto.anterior, null)
+  assert.equal(vuelto.meta, listo.meta, 'vuelven los metadatos del original')
+  assert.equal(vuelto.segments, listo.segments)
+  assert.ok(!existsSync(path.join(vdir, 'papelera')))
+  assert.equal(dimensiones(await rearmar(key, vdir, 'restaurado.mp4')), 'h264,1280,720')
+  await assert.rejects(restaurarOriginal(v.id), /No hay un original/)
+
+  // Reemplazado otra vez: a los 5 días la papelera se vacía sola y queda la versión liviana.
+  const e2 = await crearExp(clave, { videoId: v.id, duracion: 8, alto: 480 })
+  await cicloExportacion()
+  await reemplazarOriginal(e2)
+  assert.equal(await vencerPapelera(), 0, 'antes de 5 días no se toca')
+  assert.equal(await vencerPapelera(Date.now() + 5.1 * 24 * 3600e3), 1)
+  assert.ok(!existsSync(path.join(vdir, 'papelera')))
+  assert.equal((await prisma.video.findUniqueOrThrow({ where: { id: v.id } })).anterior, null)
+  assert.equal(dimensiones(await rearmar(key, vdir, 'final.mp4')), 'h264,854,480')
+})
+
+test('papelera: lo borrado hace más de 5 días se borra de verdad; lo reciente sigue', async () => {
+  const { vencerPapelera } = await import('../lib/exportar.ts')
+  const mk = async (id) => {
+    await prisma.video.create({ data: { id, status: 'listo', segments: 1, meta: 'x' } })
+    const d = path.join(paths.videos, id)
+    execFileSync('mkdir', ['-p', d])
+    writeFileSync(path.join(d, 'init.mp4.enc'), 'cifrado')
+    return d
+  }
+  const d1 = await mk('11111111-1111-1111-1111-111111111111')
+  const d2 = await mk('22222222-2222-2222-2222-222222222222')
+  await prisma.video.update({ where: { id: '11111111-1111-1111-1111-111111111111' }, data: { borradoAt: new Date(Date.now() - 6 * 24 * 3600e3) } })
+  await prisma.video.update({ where: { id: '22222222-2222-2222-2222-222222222222' }, data: { borradoAt: new Date() } })
+  assert.equal(await vencerPapelera(), 1)
+  assert.ok(!existsSync(d1) && existsSync(d2), 'solo lo de más de 5 días')
+  assert.equal(await prisma.video.count({ where: { id: '11111111-1111-1111-1111-111111111111' } }), 0)
+  await prisma.video.delete({ where: { id: '22222222-2222-2222-2222-222222222222' } })
+})
+
+test('tasa elegida: la sugerida escala con los píxeles; más tasa → más calidad (CRF menor), menos → mayor', async () => {
+  const { calidad, mbpsSugerida } = await import('../lib/exportar.ts')
+  assert.equal(mbpsSugerida(1280, 720, null), 3)
+  assert.equal(mbpsSugerida(3840, 2160, 720), 3)
+  assert.ok(Math.abs(mbpsSugerida(1920, 1080, null) - 6.75) < 0.01)
+  assert.deepEqual(calidad(1280, 720, null, null), ['-crf', '26', '-maxrate', '3000k', '-bufsize', '6000k'])
+  assert.deepEqual(calidad(1280, 720, null, 6), ['-crf', '22', '-maxrate', '6000k', '-bufsize', '12000k'])
+  assert.deepEqual(calidad(1280, 720, null, 1.5).slice(0, 2), ['-crf', '30'])
+  assert.deepEqual(calidad(1280, 720, null, 40).slice(0, 2), ['-crf', '18'], 'no baja de 18')
 })
 
 test('reducir al subir: crea la versión de 540p en la fila y al terminar reemplaza al original (si pesa menos)', async () => {

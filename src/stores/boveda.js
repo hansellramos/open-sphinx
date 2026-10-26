@@ -366,10 +366,35 @@ export const useBovedaStore = defineStore('boveda', () => {
   const favorito = (v) => guardarMeta(v, { favorite: !v.m.favorite })
   const renombrar = (v, title) => guardarMeta(v, { title: String(title).trim().slice(0, 200) || v.m.title })
 
+  // Borrar: va a la papelera (5 días).
   async function borrar(v) {
     await api.del(`/videos/${v.id}`)
     items.value = items.value.filter((x) => x.id !== v.id)
   }
+
+  // ---------- papelera: lo borrado y los originales reemplazados, 5 días ----------
+
+  async function papelera() {
+    const lista = await api.get('/videos/papelera')
+    return Promise.all(
+      lista.map(async (v) => {
+        const d = await descifrar(v)
+        if (v.anterior?.meta) d.anterior = { ...v.anterior, m: await decryptJSON(await auth.claveDe(v), v.anterior.meta).catch(() => null) }
+        return d
+      }),
+    )
+  }
+  async function restaurar(v) {
+    await api.post(`/videos/${v.id}/restaurar`)
+    await cargar(true)
+  }
+  const borrarDefinitivo = (v) => api.del(`/videos/${v.id}?definitivo=1`)
+  async function restaurarOriginal(v) {
+    await api.post(`/videos/${v.id}/restaurar-original`)
+    olvidarMiniatura(v.id)
+    await cargar(true)
+  }
+  const descartarOriginal = (v) => api.del(`/videos/${v.id}/original-anterior`)
 
   // ---------- miniaturas (cifradas; se descifran al aparecer en pantalla) ----------
 
@@ -498,7 +523,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
     huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
-    favorito, renombrar, borrar, thumbUrl, olvidarMiniatura, publicKey: () => publicKey,
+    favorito, renombrar, borrar, papelera, restaurar, borrarDefinitivo, restaurarOriginal, descartarOriginal, thumbUrl, olvidarMiniatura, publicKey: () => publicKey,
     cifrarMeta, descifrarMeta, editarVarios, fechaVarios, ubicacionVarios, etiquetasVarios,
     albumes, album, albumesDe, crearAlbum, editarAlbum, borrarAlbum, agregarAAlbum, quitarDeAlbum, portadaAlbum, asignarAlbumes,
   }

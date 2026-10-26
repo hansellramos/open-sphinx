@@ -139,7 +139,7 @@ const guardarEtiquetas = accion(async () => {
 })
 const confirmarBorrar = accion(async () => {
   await boveda.borrar(borrar.value)
-  toast.ok('Borrado')
+  toast.ok('A la papelera (5 días)')
   borrar.value = null
 })
 
@@ -207,7 +207,7 @@ const borrarVarios = accion(async () => {
       await boveda.borrar(v)
       borrandoVarios.value = Math.round(((i + 1) / vs.length) * 100)
     }
-    toast.ok(`${plural(vs.length)} ${vs.length === 1 ? 'borrado' : 'borrados'}`)
+    toast.ok(`${plural(vs.length)} a la papelera (5 días)`)
   } finally {
     borrandoVarios.value = null
     preguntandoBorrar.value = false
@@ -510,7 +510,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
   <CModal :visible="preguntandoBorrar" alignment="center" backdrop="static" @close="borrandoVarios === null && (preguntandoBorrar = false)">
     <CModalHeader :close-button="borrandoVarios === null"><CModalTitle>¿Borrar {{ plural(nSel) }}?</CModalTitle></CModalHeader>
     <CModalBody>
-      Se borran de la NAS para siempre (con sus exportaciones). No se puede deshacer.
+      Van a la papelera: se pueden restaurar durante 5 días (sus exportaciones sí se borran).
       <CProgress v-if="borrandoVarios !== null" :value="borrandoVarios" class="mt-3" height="6" />
     </CModalBody>
     <CModalFooter>
@@ -552,7 +552,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
 
   <CModal :visible="!!borrar" @close="borrar = null" alignment="center">
     <CModalHeader><CModalTitle>¿Borrar?</CModalTitle></CModalHeader>
-    <CModalBody v-if="borrar">Se borra <strong>{{ borrar.m?.title ?? 'esto' }}</strong> de la NAS. No se puede deshacer.</CModalBody>
+    <CModalBody v-if="borrar"><strong>{{ borrar.m?.title ?? 'Esto' }}</strong> va a la papelera: se puede restaurar durante 5 días.</CModalBody>
     <CModalFooter>
       <CButton color="secondary" variant="ghost" @click="borrar = null">Cancelar</CButton>
       <CButton color="danger" @click="confirmarBorrar">Borrar</CButton>

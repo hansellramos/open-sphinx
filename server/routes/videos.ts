@@ -8,7 +8,7 @@ import path from 'node:path'
 import { Server as TusServer } from '@tus/server'
 import { prisma } from '../db.ts'
 import { ARCHIVO_VALIDO, borrarSubida, videoDir } from '../lib/paths.ts'
-import { ALTOS, FILTROS, exportPublica, guardarClave } from '../lib/exportar.ts'
+import { ALTOS, DIAS_PAPELERA, FILTROS, borrarExportacion, exportPublica, guardarClave, restaurarOriginal } from '../lib/exportar.ts'
 import { SubidasCifradas } from '../lib/temporal.ts'
 
 const MAX_BYTES = 20 * 1024 ** 3 // 20 GB
@@ -81,6 +81,7 @@ const publico = (v) => ({
   error: v.error,
   progreso: v.progreso,
   uploadId: v.uploadId, // id de la subida tus mientras no se procesa (para que Subir muestre el avance)
+  ...(v.anterior ? { anteriorSize: JSON.parse(v.anterior).size } : {}), // hay un original reemplazado en la papelera
   keyWrap: v.keyWrap ? JSON.parse(v.keyWrap) : null,
   meta: v.meta,
   createdAt: v.createdAt,
@@ -91,8 +92,24 @@ const publico = (v) => ({
 })
 
 r.get('/', async (req, res) => {
-  const vs = await prisma.video.findMany({ orderBy: { createdAt: 'desc' }, include: { tags: true } })
+  const vs = await prisma.video.findMany({ where: { borradoAt: null }, orderBy: { createdAt: 'desc' }, include: { tags: true } })
   res.json(vs.map(publico))
+})
+
+// Papelera: lo borrado (5 días) y los originales que se reemplazaron por una versión más liviana (5 días).
+r.get('/papelera', async (req, res) => {
+  const vs = await prisma.video.findMany({ where: { OR: [{ borradoAt: { not: null } }, { anterior: { not: null } }] }, orderBy: { createdAt: 'desc' }, include: { tags: true } })
+  res.json(
+    vs.map((v) => {
+      const ant = v.anterior ? JSON.parse(v.anterior) : null
+      return {
+        ...publico(v),
+        borradoAt: v.borradoAt,
+        anterior: ant && { meta: ant.meta, size: ant.size, fecha: ant.fecha },
+        venceAt: new Date(new Date(v.borradoAt ?? ant.fecha).getTime() + DIAS_PAPELERA * 24 * 3600e3),
+      }
+    }),
+  )
 })
 
 r.get('/:id', async (req, res) => {
@@ -125,13 +142,45 @@ r.post('/:id/reintentar', async (req, res) => {
   res.json({ ok: true })
 })
 
+// Borrar: lo que ya está listo va a la papelera (5 días; sus exportaciones sí se borran). ?definitivo=1 (desde la
+// papelera) o lo que no llegó a estar listo se borra de una.
 r.delete('/:id', async (req, res) => {
   const v = await prisma.video.findUnique({ where: { id: req.params.id } })
   if (!v) return res.status(404).json({ error: 'No encontrado' })
   if (v.status === 'procesando') return res.status(409).json({ error: 'Se está procesando; espera a que termine' })
+  if (v.status === 'listo' && !v.borradoAt && req.query.definitivo !== '1') {
+    const ocupadas = await prisma.exportacion.count({ where: { videoId: v.id, status: 'procesando' } })
+    if (ocupadas) return res.status(409).json({ error: 'Se está exportando; espera a que termine' })
+    for (const e of await prisma.exportacion.findMany({ where: { videoId: v.id } })) await borrarExportacion(e)
+    await prisma.video.update({ where: { id: v.id }, data: { borradoAt: new Date() } })
+    return res.json({ ok: true, papelera: true })
+  }
   await rm(videoDir(v.id), { recursive: true, force: true })
   if (v.uploadId) await borrarSubida(v.uploadId)
   await prisma.video.delete({ where: { id: v.id } })
+  res.json({ ok: true })
+})
+
+// Sacar de la papelera.
+r.post('/:id/restaurar', async (req, res) => {
+  const v = await prisma.video.findUnique({ where: { id: req.params.id } })
+  if (!v?.borradoAt) return res.status(404).json({ error: 'No está en la papelera' })
+  res.json(publico(await prisma.video.update({ where: { id: v.id }, data: { borradoAt: null }, include: { tags: true } })))
+})
+
+// Volver al original que se reemplazó; o descartarlo ya (libera el espacio sin esperar los 5 días).
+r.post('/:id/restaurar-original', async (req, res) => {
+  try {
+    res.json(publico(await restaurarOriginal(req.params.id)))
+  } catch (e) {
+    res.status(409).json({ error: (e as Error).message })
+  }
+})
+r.delete('/:id/original-anterior', async (req, res) => {
+  const v = await prisma.video.findUnique({ where: { id: req.params.id } })
+  if (!v?.anterior) return res.status(404).json({ error: 'No hay un original guardado' })
+  await rm(path.join(videoDir(v.id), 'papelera'), { recursive: true, force: true })
+  await prisma.video.update({ where: { id: v.id }, data: { anterior: null } })
   res.json({ ok: true })
 })
 
@@ -143,17 +192,19 @@ r.post('/:id/exportar', async (req, res) => {
   const duracion = Number(req.body?.duracion)
   const alto = req.body?.alto == null ? null : Number(req.body.alto)
   const filtro = req.body?.filtro == null ? null : String(req.body.filtro)
+  const mbps = req.body?.mbps == null ? null : Math.round(Number(req.body.mbps) * 10) / 10
+  if (mbps !== null && !(mbps >= 0.3 && mbps <= 40)) return res.status(400).json({ error: 'Tasa no válida' })
   if (!/^[A-Za-z0-9_-]{43}$/.test(clave)) return res.status(400).json({ error: 'Clave no válida' })
   if (alto !== null && !ALTOS.includes(alto)) return res.status(400).json({ error: 'Tamaño no válido' })
   if (filtro !== null && !(filtro in FILTROS)) return res.status(400).json({ error: 'Filtro no válido' })
   const v = await prisma.video.findUnique({ where: { id: req.params.id } })
-  if (!v || v.status !== 'listo' || !v.segments) return res.status(404).json({ error: 'No hay un video listo con ese id' })
-  const igual = await prisma.exportacion.findFirst({ where: { videoId: v.id, alto, filtro } })
+  if (!v || v.status !== 'listo' || !v.segments || v.borradoAt) return res.status(404).json({ error: 'No hay un video listo con ese id' })
+  const igual = await prisma.exportacion.findFirst({ where: { videoId: v.id, alto, filtro, mbps } })
   if (igual && igual.status !== 'error') return res.json(exportPublica(igual))
   const data = { status: 'en_cola', error: null, clave: null, duracion: Number.isFinite(duracion) && duracion > 0 ? duracion : null, createdAt: new Date() }
   const id = igual?.id ?? randomUUID()
   await guardarClave(id, clave) // antes de quedar en cola, para que el worker la encuentre
-  const e = igual ? await prisma.exportacion.update({ where: { id }, data }) : await prisma.exportacion.create({ data: { ...data, id, videoId: v.id, alto, filtro } })
+  const e = igual ? await prisma.exportacion.update({ where: { id }, data }) : await prisma.exportacion.create({ data: { ...data, id, videoId: v.id, alto, filtro, mbps } })
   res.json(exportPublica(e))
 })
 

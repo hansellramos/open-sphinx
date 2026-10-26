@@ -76,13 +76,21 @@ export function tamanoSalida(w: number, h: number, alto: number | null) {
   return { W: par((w * alto) / corto), H: par((h * alto) / corto) }
 }
 
-// Tope de tasa según los píxeles de salida (~3 Mbps a 720p): con CRF solo, un video con mucho movimiento o grano
-// (cámaras de acción, 360°) puede seguir pesando casi lo mismo que el original.
+// Tasa máxima: la sugerida es ~3 Mbps a 720p, proporcional a los píxeles de salida (con CRF solo, un video con mucho
+// movimiento o grano —cámaras de acción, 360°— puede seguir pesando casi lo mismo que el original). Si se elige otra,
+// también se mueve la calidad (CRF): más tasa que la sugerida → más calidad; menos → menos (si no, subir el tope
+// no cambiaría nada en lo que CRF 26 ya deja por debajo).
 export const MBPS_720 = 3
-export function tope(w: number, h: number, alto: number | null) {
+export function mbpsSugerida(w: number, h: number, alto: number | null) {
   const { W, H } = tamanoSalida(w, h, alto)
-  const k = Math.max(800, Math.round((MBPS_720 * 1000 * W * H) / (1280 * 720)))
-  return ['-maxrate', `${k}k`, '-bufsize', `${2 * k}k`]
+  return Math.max(0.8, (MBPS_720 * W * H) / (1280 * 720))
+}
+export function calidad(w: number, h: number, alto: number | null, mbps: number | null) {
+  const sug = mbpsSugerida(w, h, alto)
+  const m = mbps ?? sug
+  const crf = Math.round(Math.min(32, Math.max(18, 26 - 4 * Math.log2(m / sug))))
+  const k = Math.round(m * 1000)
+  return ['-crf', String(crf), '-maxrate', `${k}k`, '-bufsize', `${2 * k}k`]
 }
 
 export function cadena(w: number, h: number, alto: number | null, filtro: Filtro | null) {
@@ -240,7 +248,7 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
         // Pocos hilos: decodificar 4K con muchos hilos se come la memoria del contenedor.
         '-threads', '2', '-f', 'mp4', '-i', 'pipe:0', ...(salto > 0.01 ? ['-ss', salto.toFixed(3)] : []),
         '-map', '0:v:0', '-map', '0:a:0?', '-filter_threads', '1', '-vf', cadena(w, h, e.alto, filtro),
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', ...tope(w, h, e.alto), '-threads', '2', '-force_key_frames', 'expr:gte(t,n_forced*2)',
+        '-c:v', 'libx264', '-preset', 'veryfast', ...calidad(w, h, e.alto, e.mbps ?? null), '-threads', '2', '-force_key_frames', 'expr:gte(t,n_forced*2)',
         // Los cuadros tal cual vienen: sin esto ffmpeg puede repetir o saltar cuadros para dejar una tasa fija.
         '-fps_mode', 'passthrough',
         '-c:a', 'aac', '-b:a', '96k', '-ac', '2',
@@ -304,6 +312,7 @@ export async function reemplazarOriginal(e: { id: string; videoId: string }) {
   const viejo = path.join(dir, '.original-reemplazado')
   await rm(viejo, { recursive: true, force: true })
   await mkdir(viejo)
+  const antes = await prisma.video.findUniqueOrThrow({ where: { id: e.videoId } })
   // Lo hecho a medias de otras exportaciones de este video ya no sirve para reanudar (cambian los fragmentos).
   for (const o of await prisma.exportacion.findMany({ where: { videoId: e.videoId, id: { not: e.id } } }))
     await rm(`${exportDir(e.videoId, o.id)}.parcial`, { recursive: true, force: true })
@@ -323,14 +332,60 @@ export async function reemplazarOriginal(e: { id: string; videoId: string }) {
   }
   let size = 0
   for (const f of nuevos) if (f !== 'index.m3u8') size += (await stat(path.join(dir, f))).size
+  // El original queda 5 días en la papelera (videos/<id>/papelera/) por si fue un error. Si ya había uno (se
+  // reemplazó dos veces), se guarda el primero: es el verdadero original.
+  const papelera = path.join(dir, 'papelera')
+  const anterior = existsSync(papelera) ? antes.anterior : JSON.stringify({ meta: antes.meta, size: antes.size, segments: antes.segments, fecha: new Date().toISOString() })
+  if (existsSync(papelera)) await rm(viejo, { recursive: true, force: true })
+  else await rename(viejo, papelera)
   const v = await prisma.video.update({
     where: { id: e.videoId },
     // readyAt cambia: el navegador lo usa para no servirse fragmentos viejos de su caché.
-    data: { size, segments: nuevos.filter((f) => f.startsWith('seg_')).length, readyAt: new Date() },
+    data: { size, segments: nuevos.filter((f) => f.startsWith('seg_')).length, readyAt: new Date(), anterior },
   })
-  await rm(viejo, { recursive: true, force: true })
   await borrarExportacion(e)
   return v
+}
+
+// Volver al original que se reemplazó (está en la papelera): la versión actual se borra.
+export async function restaurarOriginal(videoId: string) {
+  const v = await prisma.video.findUniqueOrThrow({ where: { id: videoId } })
+  const dir = videoDir(videoId)
+  const papelera = path.join(dir, 'papelera')
+  if (!v.anterior || !existsSync(papelera)) throw new Error('No hay un original guardado')
+  const ant = JSON.parse(v.anterior)
+  const ocupadas = await prisma.exportacion.count({ where: { videoId, status: { in: ['en_cola', 'procesando'] } } })
+  if (ocupadas) throw new Error('Hay una exportación de este video en curso; espera a que termine')
+  for (const o of await prisma.exportacion.findMany({ where: { videoId } })) await rm(`${exportDir(videoId, o.id)}.parcial`, { recursive: true, force: true })
+  const actual = path.join(dir, '.reemplazo-descartado')
+  await rm(actual, { recursive: true, force: true })
+  await mkdir(actual)
+  for (const f of (await readdir(dir)).filter(ES_VIDEO)) await rename(path.join(dir, f), path.join(actual, f))
+  for (const f of await readdir(papelera)) await rename(path.join(papelera, f), path.join(dir, f))
+  await rm(papelera, { recursive: true, force: true })
+  await rm(actual, { recursive: true, force: true })
+  const r = await prisma.video.update({ where: { id: videoId }, data: { meta: ant.meta, size: ant.size, segments: ant.segments, readyAt: new Date(), anterior: null } })
+  if (r.keyWrap && r.meta) await writeFile(path.join(dir, 'key.json'), JSON.stringify({ v: 2, keyWrap: JSON.parse(r.keyWrap), meta: r.meta })).catch(() => {})
+  return r
+}
+
+// Papelera: a los 5 días se borra de verdad (elementos borrados y originales reemplazados).
+export const DIAS_PAPELERA = 5
+export async function vencerPapelera(ahora = Date.now()) {
+  const limite = new Date(ahora - DIAS_PAPELERA * 24 * 3600e3)
+  let n = 0
+  for (const v of await prisma.video.findMany({ where: { borradoAt: { lt: limite } } })) {
+    await rm(videoDir(v.id), { recursive: true, force: true })
+    await prisma.video.delete({ where: { id: v.id } }).catch(() => {})
+    n++
+  }
+  for (const v of await prisma.video.findMany({ where: { anterior: { not: null } } })) {
+    if (new Date(JSON.parse(v.anterior!).fecha).getTime() >= limite.getTime()) continue
+    await rm(path.join(videoDir(v.id), 'papelera'), { recursive: true, force: true })
+    await prisma.video.update({ where: { id: v.id }, data: { anterior: null } })
+    n++
+  }
+  return n
 }
 
 // Pedida al subir («reducir»): al terminar reemplaza al original, si pesa menos (si no, se descarta). Los metadatos

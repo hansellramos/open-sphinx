@@ -14,7 +14,7 @@ import { borrarSubida, paths, videoDir } from './lib/paths.ts'
 import { cifradorHLS, cifrarEnPartes, listaVOD, miniatura, prepararImagen, probe, segmentar, sha256, tipoDe, type InfoImagen, type Probe } from './lib/media.ts'
 import { abrirSubida, leerLlave, servir } from './lib/temporal.ts'
 import { b64u, encryptBlob, encryptJSON, newFileKey, sealFileKey } from '../shared/crypto.js'
-import { cicloExportacion, guardarClave, recuperarExportaciones, vencerExportaciones } from './lib/exportar.ts'
+import { cicloExportacion, guardarClave, recuperarExportaciones, vencerExportaciones, vencerPapelera } from './lib/exportar.ts'
 import { cicloZip, recuperarZips, vencerZips } from './lib/zips.ts'
 
 const ESPERA_MS = 5_000
@@ -287,6 +287,7 @@ if (import.meta.main) {
         ultimoVencer = Date.now()
         await vencerExportaciones().then((n) => n && console.log(`[worker] ${n} exportación(es) vencida(s) borrada(s)`), (e) => console.error('[worker] vencer exportaciones:', e.message))
         await vencerZips().then((n) => n && console.log(`[worker] ${n} zip(s) vencido(s) borrado(s)`), (e) => console.error('[worker] vencer zips:', e.message))
+        await vencerPapelera().then((n) => n && console.log(`[worker] papelera: ${n} cosa(s) de más de 5 días borrada(s)`), (e) => console.error('[worker] papelera:', e.message))
       }
       await new Promise((r) => setTimeout(r, ESPERA_MS))
     }

@@ -4,7 +4,7 @@ import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import { MBPS_720 } from '@/lib/peso'
+import { mbpsSugerida } from '@/lib/peso'
 
 export const useExportadosStore = defineStore('exportados', () => {
   const auth = useAuthStore()
@@ -29,15 +29,15 @@ export const useExportadosStore = defineStore('exportados', () => {
     if (pendientes.value) timer = setTimeout(() => cargar().catch(() => programar()), 3000)
   }
 
-  // opciones: { alto: 720 | 540 | 480 | null, filtro: 'a' | 'b' | 'c' | null }
-  async function pedir(v, { alto = null, filtro = null }) {
-    const e = await api.post(`/videos/${v.id}/exportar`, { clave: await auth.claveCrudaDe(v), duracion: v.m?.duration ?? null, alto, filtro })
+  // opciones: { alto: 720 | 540 | 480 | null, filtro: 'a' | 'b' | 'c' | null, mbps: tasa máxima | null (la sugerida) }
+  async function pedir(v, { alto = null, filtro = null, mbps = null }) {
+    const e = await api.post(`/videos/${v.id}/exportar`, { clave: await auth.claveCrudaDe(v), duracion: v.m?.duration ?? null, alto, filtro, mbps })
     items.value = [e, ...items.value.filter((x) => x.id !== e.id)]
     programar()
     return e
   }
 
-  // Usar una exportación como el video: la NAS borra el original para siempre.
+  // Usar una exportación como el video: el original queda 5 días en la papelera.
   async function reemplazar(e) {
     const r = await api.post(`/exportados/${e.id}/reemplazar`)
     items.value = items.value.filter((x) => x.id !== e.id)
@@ -62,7 +62,7 @@ export const useExportadosStore = defineStore('exportados', () => {
   // Cuánto pesará, antes de pedirla: duración × píxeles de salida × bytes por píxel y segundo. Sin datos propios se
   // usa una tasa típica (H.264 CRF 26 de video de celular; con filtro mucho menos, por los colores planos) con un
   // rango amplio; con exportaciones ya hechas se usa lo que pesaron, y el rango se cierra a medida que hay más.
-  function estimar(v, { alto = null, filtro = null }) {
+  function estimar(v, { alto = null, filtro = null, mbps = null }) {
     const dur = v?.m?.duration, w = v?.m?.width, h = v?.m?.height
     if (!dur || !w || !h) return null
     const corto = Math.min(w, h)
@@ -74,9 +74,11 @@ export const useExportadosStore = defineStore('exportados', () => {
       : filtro
         ? [0.08, 0.4, 2.5, 12_500]
         : [0.33, 0.5, 1.6, 12_500]
-    // La NAS le pone tope a la tasa (~3 Mbps a 720p, proporcional a los píxeles; ver tope() en exportar.ts).
-    const tope = (Math.max(800, (MBPS_720 * 1000 * pix) / (1280 * 720)) * 1000) / 8
-    const base = dur * (Math.min(pix * tasa, tope) + audio)
+    // La NAS le pone tope a la tasa (la sugerida: ~3 Mbps a 720p, proporcional a los píxeles; ver calidad() en
+    // exportar.ts). Con otra tasa también cambia la calidad: más o menos peso, aunque no en proporción exacta.
+    const sug = mbpsSugerida(v.m, alto)
+    const m = mbps ?? sug
+    const base = dur * (Math.min(pix * tasa * (m / sug) ** 0.7, (m * 1e6) / 8) + audio)
     return { min: base * bajo, max: base * alto_, propia: !!propia, n: propia?.n ?? 0 }
   }
 

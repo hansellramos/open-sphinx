@@ -5,6 +5,19 @@
 const BITS_POR_PIXEL = { h264: 0.08, hevc: 0.05, av1: 0.04, vp9: 0.05 }
 export const MBPS_720 = 3 // tope de las exportaciones a 720p (igual que server/lib/exportar.ts)
 
+// Lado corto pedido → medidas de salida (nunca agranda; pares), igual que tamanoSalida() en exportar.ts.
+export function salida(m, alto) {
+  const corto = Math.min(m.width, m.height)
+  const k = alto && alto < corto ? alto / corto : 1
+  return { W: 2 * Math.round((m.width * k) / 2), H: 2 * Math.round((m.height * k) / 2) }
+}
+// Tasa máxima sugerida para exportar (igual que mbpsSugerida() en exportar.ts).
+export function mbpsSugerida(m, alto) {
+  if (!m?.width || !m?.height) return MBPS_720
+  const { W, H } = salida(m, alto)
+  return Math.max(0.8, (MBPS_720 * W * H) / (1280 * 720))
+}
+
 export const mbps = (v) => (v?.m?.duration > 0 && v.size > 0 ? (v.size * 8) / v.m.duration / 1e6 : null)
 
 // Mbps habituales para este video (a 30 cps si no se sabe).

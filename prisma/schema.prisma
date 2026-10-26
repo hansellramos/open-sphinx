@@ -61,6 +61,8 @@ model Video {
   extra        String? // JSON sellado por el navegador al subir (etiquetas); el worker lo mete en meta y lo borra
   progreso     Int       @default(0) // mientras se procesa (0–100), para mostrar el avance
   reducir      Int? // elegido al subir: al procesarlo se crea una versión con este lado corto (720, 540) que lo reemplaza
+  borradoAt    DateTime? // en la papelera desde esta fecha (se borra de verdad a los 5 días)
+  anterior     String? // JSON {meta, size, segments, fecha}: el original que se reemplazó, guardado 5 días en videos/<id>/papelera/
   createdAt    DateTime  @default(now())
   readyAt      DateTime?
   jobs         Job[]
@@ -108,6 +110,7 @@ model Exportacion {
   size      Int       @default(0)
   estimado  Int? // peso final estimado mientras se crea (por lo que pesan los fragmentos ya hechos)
   reemplazar Boolean  @default(false) // pedida al subir: al terminar reemplaza al original (si pesa menos)
+  mbps      Float? // tasa máxima elegida (null = la sugerida: ~3 Mbps a 720p, proporcional a los píxeles)
   createdAt DateTime  @default(now())
   readyAt   DateTime?
   expiresAt DateTime?

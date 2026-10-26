@@ -65,7 +65,7 @@ const reanudando = ref(null)
 async function reanudar(v, e) {
   reanudando.value = e.id
   try {
-    await exportados.pedir(v, { alto: e.alto, filtro: e.filtro })
+    await exportados.pedir(v, { alto: e.alto, filtro: e.filtro, mbps: e.mbps })
     toast.ok(e.progreso ? `Sigue desde el ${e.progreso}%` : 'Otra vez en cola')
   } catch (err) {
     toast.error(err)

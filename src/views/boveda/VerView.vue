@@ -29,7 +29,7 @@ import AlbumModal from '@/components/elementos/AlbumModal.vue'
 import VisorCompleto from '@/components/elementos/VisorCompleto.vue'
 import { useCompartir } from '@/lib/compartir'
 import { conRotacion, leerRotacion, sumarRotacion } from '@/lib/rotacion'
-import { aligerar, porQuePesa } from '@/lib/peso'
+import { aligerar, mbps as mbpsDe, mbpsSugerida, porQuePesa } from '@/lib/peso'
 
 const PREVIA_AUTO = 50 * 1024 * 1024 // más grande que esto, la vista previa se pide a mano
 
@@ -63,6 +63,13 @@ const exportando = ref(null) // { alto, filtro } con el diálogo abierto
 const compartiendo = ref(null) // id de la exportación que se está preparando para compartir
 // Tamaños que de verdad reducen (nunca agrandar).
 const estimacion = computed(() => (exportando.value ? exportados.estimar(item.value, exportando.value) : null))
+// Tasa máxima: arranca en la sugerida para el tamaño elegido; el deslizador la cambia (null = la sugerida).
+const sugerida = computed(() => (exportando.value ? Math.round(mbpsSugerida(m.value, exportando.value.alto) * 10) / 10 : 0))
+const tasaMax = computed(() => Math.max(8, Math.ceil(mbpsDe(item.value) ?? 0)))
+const tasa = computed({
+  get: () => exportando.value?.mbps ?? sugerida.value,
+  set: (x) => (exportando.value.mbps = Math.abs(Number(x) - sugerida.value) < 0.05 ? null : Number(x)),
+})
 const altosPosibles = computed(() => [720, 540, 480].filter((a) => a < Math.min(m.value?.width ?? 0, m.value?.height ?? 0)))
 const FILTROS = [
   ['a', 'A', 'manchas medianas, 6 tonos'],
@@ -73,7 +80,7 @@ const FILTROS = [
 const item = computed(() => boveda.items.find((v) => v.id === route.params.id))
 const m = computed(() => item.value?.m)
 const peso = computed(() => (tipo.value === 'video' ? porQuePesa(item.value) : null))
-const sugerida = computed(() => (tipo.value === 'video' ? aligerar(item.value) : null))
+const sugerencia = computed(() => (tipo.value === 'video' ? aligerar(item.value) : null))
 const tipo = computed(() => (m.value ? boveda.tipo(item.value) : null))
 const previa = computed(() => (tipo.value === 'archivo' ? vistaPrevia(m.value.mime ?? '', m.value.originalName) : null))
 // Orden para pasar al anterior/siguiente: el de la lista desde la que se abrió, o por fecha.
@@ -184,7 +191,7 @@ const confirmarBorrar = accion(async () => {
   const otro = siguiente.value ?? anterior.value
   await boveda.borrar(item.value)
   borrando.value = false
-  toast.ok('Borrado')
+  toast.ok('A la papelera (5 días)')
   if (otro) ir(otro)
   else volver()
 })
@@ -341,13 +348,13 @@ const pedirExport = accion(async () => {
   exportando.value = null
   toast.info('En cola: la NAS lo está preparando. Dura 7 días.')
 })
-const reintentarExport = accion((e) => exportados.pedir(item.value, { alto: e.alto, filtro: e.filtro }))
+const reintentarExport = accion((e) => exportados.pedir(item.value, { alto: e.alto, filtro: e.filtro, mbps: e.mbps }))
 const borrarExport = accion(async (e) => {
   await exportados.borrar(e)
   if (viendo.value === e.id) await ver(null)
   toast.ok('Exportación borrada')
 })
-// Reemplazar el original por una exportación (más liviana): el original se borra para siempre.
+// Reemplazar el original por una exportación (más liviana): el original queda 5 días en la papelera.
 const reemplazando = ref(null) // exportación a confirmar
 const reemplazarOriginal = accion(async () => {
   const e = reemplazando.value
@@ -537,7 +544,7 @@ onBeforeUnmount(() => {
       </div>
       <div v-if="tipo === 'video'" class="mb-1">
         <CIcon icon="cil-share-all" class="me-2 text-body-secondary" />Exportar
-        <CButton color="link" size="sm" class="py-0" title="Exportar más pequeño, recomprimido o con filtro" @click="exportando = { alto: altosPosibles[0] ?? null, filtro: null }">Nueva…</CButton>
+        <CButton color="link" size="sm" class="py-0" title="Exportar más pequeño, recomprimido o con filtro" @click="exportando = { alto: altosPosibles[0] ?? null, filtro: null, mbps: null }">Nueva…</CButton>
         <div v-for="e in exportaciones" :key="e.id" class="ms-4 mt-1">
           <span class="fw-semibold">{{ etiquetaExport(e) }}</span>
           <span v-if="e.status === 'en_cola'" class="text-body-secondary ms-1">· en cola…</span>
@@ -558,10 +565,14 @@ onBeforeUnmount(() => {
           <CButton v-else-if="e.status === 'error'" color="danger" variant="ghost" size="sm" class="py-0" @click="borrarExport(e)">Quitar</CButton>
         </div>
       </div>
+      <div v-if="item.anteriorSize" class="mb-1">
+        <CIcon icon="cil-trash" class="me-2 text-body-secondary" />El original ({{ tamano(item.anteriorSize) }}) está en la
+        <RouterLink to="/papelera">papelera</RouterLink>: se puede restaurar.
+      </div>
       <div v-if="peso" class="mb-1 peso-video">
         <CIcon icon="cil-storage" class="me-2 text-body-secondary" />Tasa {{ peso.mbps.toLocaleString('es', { maximumFractionDigits: 1 }) }} Mbps
         <span :class="peso.nivel === 'normal' ? 'text-body-secondary' : 'text-warning'">· {{ peso.nivel }}</span>
-        <CButton v-if="sugerida" color="link" size="sm" class="py-0" @click="exportando = { alto: sugerida.alto, filtro: null }">{{ sugerida.accion }}…</CButton>
+        <CButton v-if="sugerencia" color="link" size="sm" class="py-0" @click="exportando = { alto: sugerencia.alto, filtro: null, mbps: null }">{{ sugerencia.accion }}…</CButton>
         <ul class="small text-body-secondary mb-0 ms-4 ps-3">
           <li v-for="r in peso.razones" :key="r">{{ r }}</li>
           <li v-if="!m.fps">Los cuadros por segundo se miden al reproducirlo.</li>
@@ -579,7 +590,7 @@ onBeforeUnmount(() => {
     <CModalBody v-if="exportando">
       <div class="fw-semibold mb-1">Tamaño</div>
       <div v-for="[a, txt] in [[null, 'Mismo tamaño (sin filtro: solo recomprimir)'], [720, '720p'], [540, '540p'], [480, '480p']]" :key="String(a)" class="form-check">
-        <input :id="`alto-${a}`" v-model="exportando.alto" class="form-check-input" type="radio" :value="a" :disabled="a !== null && !altosPosibles.includes(a)" />
+        <input :id="`alto-${a}`" v-model="exportando.alto" class="form-check-input" type="radio" :value="a" :disabled="a !== null && !altosPosibles.includes(a)" @change="exportando.mbps = null" />
         <label class="form-check-label" :for="`alto-${a}`">{{ txt }}</label>
       </div>
       <div class="fw-semibold mt-3 mb-1">Filtro</div>
@@ -587,12 +598,19 @@ onBeforeUnmount(() => {
         <input :id="`filtro-${k}`" v-model="exportando.filtro" class="form-check-input" type="radio" :value="k" />
         <label class="form-check-label" :for="`filtro-${k}`">{{ txt }}</label>
       </div>
+      <div class="fw-semibold mt-3 mb-1">
+        <label for="tasa-export" class="form-label mb-0">Tasa máxima: {{ tasa.toLocaleString('es', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }} Mbps</label>
+        <span class="small fw-normal text-body-secondary ms-1">{{ exportando.mbps === null ? '(sugerida)' : exportando.mbps > sugerida ? '(más calidad, pesa más)' : '(pesa menos, menos calidad)' }}</span>
+        <CButton v-if="exportando.mbps !== null" color="link" size="sm" class="py-0" @click="exportando.mbps = null">Volver a la sugerida</CButton>
+      </div>
+      <input id="tasa-export" v-model.number="tasa" type="range" class="form-range" min="0.5" :max="tasaMax" step="0.1" />
+      <div class="d-flex justify-content-between small text-body-secondary"><span>0,5</span><span>Sugerida {{ sugerida.toLocaleString('es') }}</span><span>{{ tasaMax }}</span></div>
       <div v-if="estimacion" class="mt-3 export-estimado">
         Pesará aprox. <strong>{{ tamano(estimacion.min) }} – {{ tamano(estimacion.max) }}</strong>
         <span class="text-body-secondary">(el original: {{ tamano(item.size) }})</span>
         <div class="small text-body-secondary">{{ estimacion.propia ? `Según ${estimacion.n === 1 ? 'tu exportación anterior' : `tus ${estimacion.n} exportaciones anteriores`} con este filtro.` : 'Estimación general: se afina con tus próximas exportaciones.' }}</div>
       </div>
-      <div class="small text-body-secondary mt-3">Conserva los cuadros por segundo y limita la tasa (~3 Mbps a 720p). Lo hace la NAS (puede tardar varias veces lo que dura el video) y se borra solo a los 7 días.</div>
+      <div class="small text-body-secondary mt-3">Conserva los cuadros por segundo. Lo hace la NAS (puede tardar varias veces lo que dura el video) y se borra solo a los 7 días.</div>
     </CModalBody>
     <CModalFooter>
       <CButton color="secondary" variant="ghost" @click="exportando = null">Cancelar</CButton>
@@ -603,7 +621,7 @@ onBeforeUnmount(() => {
     <CModalHeader><CModalTitle>¿Usar como original?</CModalTitle></CModalHeader>
     <CModalBody v-if="reemplazando">
       El video pasa a ser la versión <strong>{{ etiquetaExport(reemplazando) }}</strong> ({{ tamano(reemplazando.size) }} en vez de {{ tamano(item.size) }}).
-      <strong>El original se borra para siempre</strong> y no se puede recuperar.
+      El original queda <strong>5 días en la papelera</strong> por si quieres volver a él; después se borra para siempre.
       <div v-if="reemplazando.filtro" class="text-danger mt-2">Tiene filtro: el video quedará con el filtro puesto.</div>
       <div class="small text-body-secondary mt-2">Fecha, ubicación, etiquetas y miniatura se conservan.</div>
     </CModalBody>
@@ -617,7 +635,7 @@ onBeforeUnmount(() => {
   <AlbumElegirModal :visible="eligiendoAlbumes" :ids="item ? [item.id] : []" @close="eligiendoAlbumes = false" @listo="eligiendoAlbumes = false" @nuevo="eligiendoAlbumes = false; creandoAlbum = true" />
   <CModal :visible="borrando" alignment="center" @close="borrando = false">
     <CModalHeader><CModalTitle>¿Borrar?</CModalTitle></CModalHeader>
-    <CModalBody>Se borra de la NAS para siempre (con sus exportaciones). No se puede deshacer.</CModalBody>
+    <CModalBody>Va a la papelera: se puede restaurar durante 5 días (sus exportaciones sí se borran).</CModalBody>
     <CModalFooter>
       <CButton color="secondary" variant="ghost" @click="borrando = false">Cancelar</CButton>
       <CButton color="danger" @click="confirmarBorrar">Borrar</CButton>
