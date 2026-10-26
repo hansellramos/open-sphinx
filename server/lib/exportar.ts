@@ -76,6 +76,15 @@ export function tamanoSalida(w: number, h: number, alto: number | null) {
   return { W: par((w * alto) / corto), H: par((h * alto) / corto) }
 }
 
+// Tope de tasa según los píxeles de salida (~3 Mbps a 720p): con CRF solo, un video con mucho movimiento o grano
+// (cámaras de acción, 360°) puede seguir pesando casi lo mismo que el original.
+export const MBPS_720 = 3
+export function tope(w: number, h: number, alto: number | null) {
+  const { W, H } = tamanoSalida(w, h, alto)
+  const k = Math.max(800, Math.round((MBPS_720 * 1000 * W * H) / (1280 * 720)))
+  return ['-maxrate', `${k}k`, '-bufsize', `${2 * k}k`]
+}
+
 export function cadena(w: number, h: number, alto: number | null, filtro: Filtro | null) {
   const { W, H } = tamanoSalida(w, h, alto)
   const partes = [`scale=${W}:${H}`]
@@ -231,7 +240,9 @@ export async function hacerExportacion(e: { id: string; videoId: string; duracio
         // Pocos hilos: decodificar 4K con muchos hilos se come la memoria del contenedor.
         '-threads', '2', '-f', 'mp4', '-i', 'pipe:0', ...(salto > 0.01 ? ['-ss', salto.toFixed(3)] : []),
         '-map', '0:v:0', '-map', '0:a:0?', '-filter_threads', '1', '-vf', cadena(w, h, e.alto, filtro),
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-threads', '2', '-force_key_frames', 'expr:gte(t,n_forced*2)',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', ...tope(w, h, e.alto), '-threads', '2', '-force_key_frames', 'expr:gte(t,n_forced*2)',
+        // Los cuadros tal cual vienen: sin esto ffmpeg puede repetir o saltar cuadros para dejar una tasa fija.
+        '-fps_mode', 'passthrough',
         '-c:a', 'aac', '-b:a', '96k', '-ac', '2',
         ...HLS, '-start_number', String(estado.segs.length), '-hls_segment_filename', `${work}/seg_%05d.m4s`, `${work}/index.m3u8`,
       ],

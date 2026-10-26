@@ -146,7 +146,6 @@ r.post('/:id/exportar', async (req, res) => {
   if (!/^[A-Za-z0-9_-]{43}$/.test(clave)) return res.status(400).json({ error: 'Clave no válida' })
   if (alto !== null && !ALTOS.includes(alto)) return res.status(400).json({ error: 'Tamaño no válido' })
   if (filtro !== null && !(filtro in FILTROS)) return res.status(400).json({ error: 'Filtro no válido' })
-  if (alto === null && filtro === null) return res.status(400).json({ error: 'Elige un tamaño menor o un filtro' })
   const v = await prisma.video.findUnique({ where: { id: req.params.id } })
   if (!v || v.status !== 'listo' || !v.segments) return res.status(404).json({ error: 'No hay un video listo con ese id' })
   const igual = await prisma.exportacion.findFirst({ where: { videoId: v.id, alto, filtro } })

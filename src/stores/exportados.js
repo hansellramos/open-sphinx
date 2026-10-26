@@ -4,6 +4,7 @@ import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { MBPS_720 } from '@/lib/peso'
 
 export const useExportadosStore = defineStore('exportados', () => {
   const auth = useAuthStore()
@@ -73,7 +74,9 @@ export const useExportadosStore = defineStore('exportados', () => {
       : filtro
         ? [0.08, 0.4, 2.5, 12_500]
         : [0.33, 0.5, 1.6, 12_500]
-    const base = dur * (pix * tasa + audio)
+    // La NAS le pone tope a la tasa (~3 Mbps a 720p, proporcional a los píxeles; ver tope() en exportar.ts).
+    const tope = (Math.max(800, (MBPS_720 * 1000 * pix) / (1280 * 720)) * 1000) / 8
+    const base = dur * (Math.min(pix * tasa, tope) + audio)
     return { min: base * bajo, max: base * alto_, propia: !!propia, n: propia?.n ?? 0 }
   }
 

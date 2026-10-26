@@ -474,7 +474,7 @@ try {
   await page.getByRole('button', { name: 'Usar como original' }).click({ timeout: 180000 })
   await page.getByRole('button', { name: 'Reemplazar', exact: true }).click()
   await page.getByText(/Listo: ahora ocupa/).waitFor({ timeout: 30000 })
-  await page.getByText('854×480 · H264').waitFor()
+  await page.getByText(/854×480 · \d+ cps · H264/).waitFor()
   if ((await page.locator('.col-md-5 .text-body-secondary').last().innerText()) === pesoAntes) throw new Error('el tamaño no cambió')
   await page.waitForFunction(() => document.querySelector('video.player')?.readyState >= 2, null, { timeout: 30000 })
   await page.evaluate(() => Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true }))
@@ -494,12 +494,12 @@ try {
   await tarjeta.getByText(/^Subido · /).waitFor({ timeout: 60000 })
   await page.goto(`${base}/#/galeria`)
   await page.locator('.video-card', { hasText: '2019' }).click({ timeout: 30000 })
-  for (let i = 0; i < 60 && !(await page.getByText('960×540 · H264').count()); i++) {
+  for (let i = 0; i < 60 && !(await page.getByText(/960×540 · \d+ cps · H264/).count()); i++) {
     await page.waitForTimeout(2000)
     await page.reload()
     if (/#\/entrar/.test(page.url())) await page.getByRole('button', { name: /Desbloquear con passkey/ }).click()
   }
-  await page.getByText('960×540 · H264').waitFor({ timeout: 10000 })
+  await page.getByText(/960×540 · \d+ cps · H264/).waitFor({ timeout: 10000 })
   await page.goto(`${base}/#/exportados`)
   await page.getByRole('heading', { name: 'Exportaciones' }).waitFor()
   if (await page.getByText('reemplazará al original').count()) throw new Error('la exportación automática debería desaparecer al reemplazar')
@@ -819,14 +819,37 @@ try {
   const filaOpt = page.locator('.optimizar-fila', { hasText: '2016' })
   await filaOpt.getByText(/→ ~.* a 720p/).waitFor()
   await filaOpt.getByText(/4K: decodificarlo puede saturar la NAS/).waitFor()
-  await page.getByText(/videos · .* → ~.* a 720p/).waitFor()
-  await filaOpt.getByRole('button', { name: 'Exportar 720p' }).click()
+  await page.getByText(/videos · .* → ~/).waitFor()
+  await filaOpt.getByRole('button', { name: 'Reducir a 720p' }).click()
   await page.getByRole('button', { name: 'Exportar igual' }).click()
   await page.getByText('En cola: cuando esté lista').waitFor()
   await filaOpt.getByRole('button', { name: 'Lista: usar…' }).click({ timeout: 60000 })
   await page.waitForURL(/#\/ver\/[0-9a-f-]+\?exp=/)
   await page.getByText(/Viendo la exportación/).waitFor()
   paso('Optimizar: peso actual y estimado a 720p, aviso de 4K con confirmación, exportar y abrir la exportación')
+
+  // Ya en 720p pero con tasa muy alta (como lo que exporta la app de una cámara 360°): por qué pesa y recomprimir.
+  const accion = path.join(dir, 'ACCION.MP4')
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=60', '-t', '3', '-vf', 'noise=alls=40:allf=t', '-c:v', 'libx264', '-b:v', '14M',
+    '-pix_fmt', 'yuv420p', '-metadata', 'com.apple.quicktime.creationdate=2017-03-03T10:00:00-0500', '-movflags', 'use_metadata_tags', accion])
+  await page.goto(`${base}/#/subir`)
+  await page.locator('input[type=file]').setInputFiles([accion])
+  await page.locator('.card', { hasText: 'ACCION' }).getByText('Subido · ✓ listo en la bóveda').waitFor({ timeout: 60000 })
+  await page.locator('.sidebar a', { hasText: 'Optimizar' }).click()
+  const filaAcc = page.locator('.optimizar-fila', { hasText: '2017' })
+  await filaAcc.getByText(/60 cps .* Mbps \(muy alta\)/).waitFor()
+  await filaAcc.getByText(/→ ~.* recomprimido/).waitFor()
+  await filaAcc.getByRole('button', { name: 'Abrir' }).click()
+  await page.locator('.peso-video').getByText(/Tasa .* Mbps · muy alta/).waitFor()
+  await page.locator('.peso-video').getByText(/veces lo habitual para 720p a 60 cps/).waitFor()
+  await page.locator('.peso-video').getByText(/60 cuadros por segundo/).waitFor()
+  if (process.env.E2E_CAPTURAS) await page.screenshot({ path: `${process.env.E2E_CAPTURAS}/ver-peso.png`, fullPage: true })
+  await page.locator('.peso-video').getByRole('button', { name: 'Recomprimir…' }).click()
+  await page.getByText(/Pesará aprox\./).waitFor()
+  await page.getByRole('button', { name: 'Exportar', exact: true }).click()
+  await page.getByText('Recomprimido').first().waitFor()
+  await page.getByText(/Recomprimido.*·.*(KB|MB)/).first().waitFor({ timeout: 60000 })
+  paso('Por qué pesa: tasa, cuadros por segundo y razones en los detalles; recomprimir al mismo tamaño desde ahí')
 
   // Migración de un video del MVP (título y etiqueta sin cifrar en la base).
   const Database = (await import('better-sqlite3')).default

@@ -74,6 +74,7 @@ for (const codec of ['libx264', 'libx265']) {
     assert.equal(meta.kind, 'video')
     assert.equal(meta.title, 'IMG_0001')
     assert.ok(Math.abs(meta.duration - 20) < 0.5)
+    assert.equal(meta.fps, 30)
     assert.deepEqual(meta.location, { lat: 4.6534, lon: -74.0836, alt: 2581 })
     assert.equal(meta.takenAt, '2021-12-25T00:03:12.000Z')
     assert.equal(meta.device, 'Apple iPhone 12')
@@ -287,6 +288,33 @@ test('exportar: 720p y 480p con filtro, cifrado con la clave prestada, sin dejar
   assert.ok(!existsSync(exportDir(v.id, eFiltro.id)))
   assert.equal(await prisma.exportacion.count(), 0)
   assert.ok(existsSync(path.join(vdir, 'init.mp4.enc')))
+})
+
+test('recomprimir sin cambiar tamaño: conserva 60 cps y le pone tope a la tasa (video de cámara de acción)', async () => {
+  const priv = await nuevaBoveda()
+  const { cicloExportacion, exportDir } = await import('../lib/exportar.ts')
+  const uploadId = 'up-recomprimir'
+  const input = path.join(paths.subidas, uploadId)
+  // 720p a 60 cps con mucho grano y ~12 Mbps, como lo que exporta la app de una 360°.
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=60', '-f', 'lavfi', '-i', 'sine=frequency=440',
+    '-t', '6', '-vf', 'noise=alls=40:allf=t', '-c:v', 'libx264', '-b:v', '12M', '-pix_fmt', 'yuv420p', '-g', '60', '-c:a', 'aac', '-f', 'mov', input])
+  const antes = readFileSync(input).length
+  await cifrarSubida(uploadId)
+  const v = await prisma.video.create({ data: { originalName: 'INSTA360.MP4', uploadId } })
+  await procesar(v.id)
+  const { listo, key } = await abrir(priv, v.id)
+  assert.equal((await c.decryptJSON(key, listo.meta)).fps, 60)
+  const clave = c.b64u(await c.openFileKeyRaw(await c.importPrivateKey(priv), JSON.parse(listo.keyWrap)))
+  const e = await crearExp(clave, { videoId: v.id, duracion: 6, alto: null })
+  await cicloExportacion()
+  const hecha = await prisma.exportacion.findUniqueOrThrow({ where: { id: e.id } })
+  assert.equal(hecha.status, 'lista', hecha.error ?? '')
+  const mp4 = await rearmar(key, exportDir(v.id, e.id), 'recomprimido.mp4')
+  assert.equal(dimensiones(mp4), 'h264,1280,720')
+  const cuadros = Number(execFileSync('ffprobe', ['-v', 'error', '-count_packets', '-select_streams', 'v', '-show_entries', 'stream=nb_read_packets', '-of', 'csv=p=0', mp4]).toString())
+  assert.ok(Math.abs(cuadros - 360) <= 2, `cuadros ${cuadros} (60 cps × 6 s)`)
+  const mbps = (hecha.size * 8) / 6 / 1e6
+  assert.ok(mbps < 4.2 && hecha.size < antes / 2.5, `tasa ${mbps.toFixed(1)} Mbps (antes ${((antes * 8) / 6 / 1e6).toFixed(1)})`)
 })
 
 test('usar una exportación como original: reemplaza los fragmentos, conserva la miniatura y borra el original', async () => {

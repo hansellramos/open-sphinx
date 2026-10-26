@@ -29,6 +29,7 @@ import AlbumModal from '@/components/elementos/AlbumModal.vue'
 import VisorCompleto from '@/components/elementos/VisorCompleto.vue'
 import { useCompartir } from '@/lib/compartir'
 import { conRotacion, leerRotacion, sumarRotacion } from '@/lib/rotacion'
+import { aligerar, porQuePesa } from '@/lib/peso'
 
 const PREVIA_AUTO = 50 * 1024 * 1024 // más grande que esto, la vista previa se pide a mano
 
@@ -61,7 +62,7 @@ const viendoExp = computed(() => exportaciones.value.find((e) => e.id === viendo
 const exportando = ref(null) // { alto, filtro } con el diálogo abierto
 const compartiendo = ref(null) // id de la exportación que se está preparando para compartir
 // Tamaños que de verdad reducen (nunca agrandar).
-const estimacion = computed(() => (exportando.value && (exportando.value.alto !== null || exportando.value.filtro !== null) ? exportados.estimar(item.value, exportando.value) : null))
+const estimacion = computed(() => (exportando.value ? exportados.estimar(item.value, exportando.value) : null))
 const altosPosibles = computed(() => [720, 540, 480].filter((a) => a < Math.min(m.value?.width ?? 0, m.value?.height ?? 0)))
 const FILTROS = [
   ['a', 'A', 'manchas medianas, 6 tonos'],
@@ -71,6 +72,8 @@ const FILTROS = [
 
 const item = computed(() => boveda.items.find((v) => v.id === route.params.id))
 const m = computed(() => item.value?.m)
+const peso = computed(() => (tipo.value === 'video' ? porQuePesa(item.value) : null))
+const sugerida = computed(() => (tipo.value === 'video' ? aligerar(item.value) : null))
 const tipo = computed(() => (m.value ? boveda.tipo(item.value) : null))
 const previa = computed(() => (tipo.value === 'archivo' ? vistaPrevia(m.value.mime ?? '', m.value.originalName) : null))
 // Orden para pasar al anterior/siguiente: el de la lista desde la que se abrió, o por fecha.
@@ -267,6 +270,7 @@ const estiloVideo = computed(() =>
 function medirVideo() {
   codificado.value = { w: el.value.videoWidth, h: el.value.videoHeight }
   sincronizar()
+  medirCuadros()
   reponerMiniatura().catch((e) => console.warn('No se pudo reponer la miniatura', e))
 }
 
@@ -299,6 +303,25 @@ async function reponerMiniatura() {
   const cifrado = await encryptBlob(await auth.claveDe(it), new Uint8Array(await jpeg.arrayBuffer()))
   const res = await fetch(`/api/videos/${it.id}/miniatura`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/octet-stream' }, body: cifrado })
   if (res.ok) boveda.olvidarMiniatura(it.id)
+}
+// Cuadros por segundo de los videos subidos antes de que la NAS los anotara: se miden mientras se reproduce (tiempo
+// entre cuadros que el navegador pinta) y se guardan en los datos cifrados del video.
+const COMUNES = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 120]
+function medirCuadros() {
+  const v = el.value, it = item.value
+  if (!v?.requestVideoFrameCallback || viendoExp.value || it?.m?.fps || tipo.value !== 'video') return
+  const tiempos = []
+  const cuadro = (_, meta) => {
+    if (el.value !== v || item.value?.id !== it.id) return
+    if (!v.paused && v.playbackRate === 1) tiempos.push(meta.mediaTime)
+    if (tiempos.length < 60) return v.requestVideoFrameCallback(cuadro)
+    const d = tiempos.slice(1).map((t, i) => t - tiempos[i]).filter((x) => x > 0.002 && x < 0.5).sort((a, b) => a - b)
+    if (d.length < 30) return
+    const crudo = 1 / d[Math.floor(d.length * 0.2)]
+    const fps = COMUNES.find((c) => Math.abs(c - crudo) / c < 0.03) ?? Math.round(crudo)
+    if (!item.value?.m?.fps) boveda.guardarMeta(item.value, { fps }).catch((e) => console.warn('No se guardaron los cuadros por segundo', e))
+  }
+  v.requestVideoFrameCallback(cuadro)
 }
 function sincronizar() {
   const v = el.value
@@ -514,7 +537,7 @@ onBeforeUnmount(() => {
       </div>
       <div v-if="tipo === 'video'" class="mb-1">
         <CIcon icon="cil-share-all" class="me-2 text-body-secondary" />Exportar
-        <CButton color="link" size="sm" class="py-0" title="Exportar más pequeño o con filtro" @click="exportando = { alto: altosPosibles[0] ?? null, filtro: null }">Nueva…</CButton>
+        <CButton color="link" size="sm" class="py-0" title="Exportar más pequeño, recomprimido o con filtro" @click="exportando = { alto: altosPosibles[0] ?? null, filtro: null }">Nueva…</CButton>
         <div v-for="e in exportaciones" :key="e.id" class="ms-4 mt-1">
           <span class="fw-semibold">{{ etiquetaExport(e) }}</span>
           <span v-if="e.status === 'en_cola'" class="text-body-secondary ms-1">· en cola…</span>
@@ -535,8 +558,17 @@ onBeforeUnmount(() => {
           <CButton v-else-if="e.status === 'error'" color="danger" variant="ghost" size="sm" class="py-0" @click="borrarExport(e)">Quitar</CButton>
         </div>
       </div>
+      <div v-if="peso" class="mb-1 peso-video">
+        <CIcon icon="cil-storage" class="me-2 text-body-secondary" />Tasa {{ peso.mbps.toLocaleString('es', { maximumFractionDigits: 1 }) }} Mbps
+        <span :class="peso.nivel === 'normal' ? 'text-body-secondary' : 'text-warning'">· {{ peso.nivel }}</span>
+        <CButton v-if="sugerida" color="link" size="sm" class="py-0" @click="exportando = { alto: sugerida.alto, filtro: null }">{{ sugerida.accion }}…</CButton>
+        <ul class="small text-body-secondary mb-0 ms-4 ps-3">
+          <li v-for="r in peso.razones" :key="r">{{ r }}</li>
+          <li v-if="!m.fps">Los cuadros por segundo se miden al reproducirlo.</li>
+        </ul>
+      </div>
       <div class="text-body-secondary">
-        <template v-if="tipo === 'video'">{{ duracion(m.duration) }} · {{ m.width }}×{{ m.height }} · {{ m.videoCodec?.toUpperCase() }} · </template>
+        <template v-if="tipo === 'video'">{{ duracion(m.duration) }} · {{ m.width }}×{{ m.height }}{{ m.fps ? ` · ${Math.round(m.fps)} cps` : '' }} · {{ m.videoCodec?.toUpperCase() }} · </template>
         <template v-else-if="tipo === 'imagen'">{{ m.width }}×{{ m.height }} · </template>
         {{ tamano(item.size) }} · {{ m.originalName }}
       </div>
@@ -546,7 +578,7 @@ onBeforeUnmount(() => {
     <CModalHeader><CModalTitle>Exportar video</CModalTitle></CModalHeader>
     <CModalBody v-if="exportando">
       <div class="fw-semibold mb-1">Tamaño</div>
-      <div v-for="[a, txt] in [[null, 'Original (sin reducir)'], [720, '720p'], [540, '540p'], [480, '480p']]" :key="String(a)" class="form-check">
+      <div v-for="[a, txt] in [[null, 'Mismo tamaño (sin filtro: solo recomprimir)'], [720, '720p'], [540, '540p'], [480, '480p']]" :key="String(a)" class="form-check">
         <input :id="`alto-${a}`" v-model="exportando.alto" class="form-check-input" type="radio" :value="a" :disabled="a !== null && !altosPosibles.includes(a)" />
         <label class="form-check-label" :for="`alto-${a}`">{{ txt }}</label>
       </div>
@@ -560,11 +592,11 @@ onBeforeUnmount(() => {
         <span class="text-body-secondary">(el original: {{ tamano(item.size) }})</span>
         <div class="small text-body-secondary">{{ estimacion.propia ? `Según ${estimacion.n === 1 ? 'tu exportación anterior' : `tus ${estimacion.n} exportaciones anteriores`} con este filtro.` : 'Estimación general: se afina con tus próximas exportaciones.' }}</div>
       </div>
-      <div class="small text-body-secondary mt-3">Lo hace la NAS (puede tardar varias veces lo que dura el video) y se borra solo a los 7 días.</div>
+      <div class="small text-body-secondary mt-3">Conserva los cuadros por segundo y limita la tasa (~3 Mbps a 720p). Lo hace la NAS (puede tardar varias veces lo que dura el video) y se borra solo a los 7 días.</div>
     </CModalBody>
     <CModalFooter>
       <CButton color="secondary" variant="ghost" @click="exportando = null">Cancelar</CButton>
-      <CButton color="primary" :disabled="!exportando || (exportando.alto === null && exportando.filtro === null)" @click="pedirExport">Exportar</CButton>
+      <CButton color="primary" :disabled="!exportando" @click="pedirExport">Exportar</CButton>
     </CModalFooter>
   </CModal>
   <CModal :visible="!!reemplazando" alignment="center" @close="reemplazando = null">

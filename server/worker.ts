@@ -112,7 +112,7 @@ export async function procesar(videoId: string) {
     const parts = p ? null : await cifrarEnPartes(subida, destinoTmp, fk.key, (f) => avance(50 + f * 49))
     const keyWrap = await sealFileKey(vault.publicKey, fk.raw)
     const datos = p
-      ? { takenAt: p.takenAt, location: p.location, device: p.device, duration: p.duration, width: p.width, height: p.height, videoCodec: p.videoCodec }
+      ? { takenAt: p.takenAt, location: p.location, device: p.device, duration: p.duration, width: p.width, height: p.height, videoCodec: p.videoCodec, fps: p.fps }
       : img
         ? { takenAt: img.takenAt, location: img.location, device: img.device, width: img.width, height: img.height, vista: img.vista, parts }
         : { takenAt: null, location: null, device: null, parts }

@@ -33,6 +33,7 @@ export type Probe = {
   height: number
   videoCodec: string
   audioCodec: string | null
+  fps: number | null // cuadros por segundo (promedio)
   takenAt: string | null // ISO
   location: { lat: number; lon: number; alt?: number } | null
   device: string | null
@@ -54,6 +55,13 @@ export function parseFecha(v?: string) {
   return Number.isNaN(d.getTime()) || d.getFullYear() < 1990 ? null : d.toISOString()
 }
 
+// "30000/1001" → 29.97; null si no es un número razonable.
+function cuadros(r?: string) {
+  const [a, b = 1] = String(r ?? '').split('/').map(Number)
+  const f = a / b
+  return Number.isFinite(f) && f > 0 && f < 1000 ? Math.round(f * 100) / 100 : null
+}
+
 export async function probe(file: string): Promise<Probe> {
   const j = JSON.parse(await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file]))
   const v = j.streams?.find((s) => s.codec_type === 'video' && s.disposition?.attached_pic !== 1)
@@ -73,6 +81,7 @@ export async function probe(file: string): Promise<Probe> {
     height: girado ? v.width : v.height,
     videoCodec: v.codec_name,
     audioCodec: a?.codec_name ?? null,
+    fps: cuadros(v.avg_frame_rate) ?? cuadros(v.r_frame_rate),
   }
 }
 
