@@ -55,7 +55,7 @@ async function usarCodigo() {
       <CCardBody class="p-4">
         <div class="text-center mb-4">
           <img src="/favicon.svg" width="56" height="56" alt="" />
-          <h1 class="h3 mt-3 mb-1">Bóveda</h1>
+          <h1 class="h3 mt-3 mb-1">Esfinge</h1>
           <div v-if="conSesion" class="text-body-secondary small">Bloqueada</div>
         </div>
         <CAlert v-if="error" color="danger" class="small">{{ error }}</CAlert>

@@ -808,6 +808,26 @@ try {
   await page.getByText('No hay nada en cola').waitFor({ timeout: 20000 })
   paso('Cola: lo que se está recibiendo (de cualquier dispositivo) con su avance; vacía cuando todo está cifrado')
 
+  // Optimizar: lista de videos con lo que pesarían a 720p; aviso de 4K (pide confirmar) y exportar desde ahí.
+  const grande = path.join(dir, 'GRANDE.MOV')
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1440x2560:rate=30', '-t', '3', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '14', '-pix_fmt', 'yuv420p',
+    '-metadata', 'com.apple.quicktime.creationdate=2016-02-02T10:00:00-0500', '-movflags', 'use_metadata_tags', grande])
+  await page.goto(`${base}/#/subir`)
+  await page.locator('input[type=file]').setInputFiles([grande])
+  await page.locator('.card', { hasText: 'GRANDE' }).getByText('Subido · ✓ listo en la bóveda').waitFor({ timeout: 60000 })
+  await page.locator('.sidebar a', { hasText: 'Optimizar' }).click()
+  const filaOpt = page.locator('.optimizar-fila', { hasText: '2016' })
+  await filaOpt.getByText(/→ ~.* a 720p/).waitFor()
+  await filaOpt.getByText(/4K: decodificarlo puede saturar la NAS/).waitFor()
+  await page.getByText(/videos · .* → ~.* a 720p/).waitFor()
+  await filaOpt.getByRole('button', { name: 'Exportar 720p' }).click()
+  await page.getByRole('button', { name: 'Exportar igual' }).click()
+  await page.getByText('En cola: cuando esté lista').waitFor()
+  await filaOpt.getByRole('button', { name: 'Lista: usar…' }).click({ timeout: 60000 })
+  await page.waitForURL(/#\/ver\/[0-9a-f-]+\?exp=/)
+  await page.getByText(/Viendo la exportación/).waitFor()
+  paso('Optimizar: peso actual y estimado a 720p, aviso de 4K con confirmación, exportar y abrir la exportación')
+
   // Migración de un video del MVP (título y etiqueta sin cifrar en la base).
   const Database = (await import('better-sqlite3')).default
   const db = new Database(`${dir}/db/boveda.db`)

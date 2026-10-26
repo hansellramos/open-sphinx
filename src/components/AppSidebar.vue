@@ -20,7 +20,7 @@ const sidebar = useSidebarStore()
       <RouterLink custom to="/" v-slot="{ href, navigate }">
         <CSidebarBrand as="a" :href="href" @click="navigate" class="d-flex align-items-center gap-2 text-decoration-none text-white">
           <img :src="icon" height="32" alt="" />
-          <span class="sidebar-brand-text">Bóveda</span>
+          <span class="sidebar-brand-text">Esfinge</span>
         </CSidebarBrand>
       </RouterLink>
       <CCloseButton class="d-lg-none" dark @click="sidebar.toggleVisible()" />

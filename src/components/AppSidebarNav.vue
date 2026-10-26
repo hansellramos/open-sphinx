@@ -18,6 +18,7 @@ const fijos = computed(() => [
   { to: '/subir', name: 'Subir', icon: 'cil-cloud-upload' },
   { to: '/cola', name: 'Cola', icon: 'cil-av-timer', n: boveda.pendientes.length },
   { to: '/exportados', name: 'Exportaciones', icon: 'cil-share-all' },
+  { to: '/optimizar', name: 'Optimizar', icon: 'cil-speedometer' },
 ])
 const activo = (to) => route.path === to || (['/etiquetas', '/albumes'].includes(to) && route.path.startsWith(`${to}/`))
 </script>
@@ -30,7 +31,7 @@ const activo = (to) => route.path === to || (['/etiquetas', '/albumes'].includes
         <span v-if="i.n" class="ms-auto small opacity-50">{{ i.n }}</span>
       </RouterLink>
     </CNavItem>
-    <CNavTitle>Bóveda</CNavTitle>
+    <CNavTitle>Esfinge</CNavTitle>
     <CNavItem>
       <RouterLink to="/ajustes" class="nav-link" :class="{ active: activo('/ajustes') }"><CIcon icon="cil-settings" custom-class-name="nav-icon" />Ajustes</RouterLink>
     </CNavItem>

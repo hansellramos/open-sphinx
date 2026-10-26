@@ -56,7 +56,7 @@ async function crearBoveda() {
       <CCardBody class="p-4">
         <div class="text-center mb-4">
           <img src="/favicon.svg" width="56" height="56" alt="" />
-          <h1 class="h3 mt-3 mb-1">Configurar la Bóveda</h1>
+          <h1 class="h3 mt-3 mb-1">Configurar Esfinge</h1>
           <div class="text-body-secondary small">Paso {{ paso }} de 3</div>
         </div>
 

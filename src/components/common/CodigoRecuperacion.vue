@@ -12,7 +12,7 @@ async function copiar() {
   toast.ok('Código copiado')
 }
 function descargar() {
-  const txt = `Código de recuperación de la Bóveda\n\n${props.codigo}\n\nGuárdalo fuera de línea. Con él se abre la bóveda si pierdes tus passkeys.\nCreado: ${new Date().toLocaleString('es-CO')}\n`
+  const txt = `Código de recuperación de Esfinge\n\n${props.codigo}\n\nGuárdalo fuera de línea. Con él se abre la bóveda si pierdes tus passkeys.\nCreado: ${new Date().toLocaleString('es-CO')}\n`
   const a = document.createElement('a')
   a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }))
   a.download = 'boveda-codigo-recuperacion.txt'
