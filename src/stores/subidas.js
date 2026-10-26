@@ -182,7 +182,8 @@ export const useSubidasStore = defineStore('subidas', () => {
         it.progreso = Math.round((sent / total) * 1000) / 10
         medir(it, sent, total)
       },
-      onSuccess: () => {
+      onSuccess: (payload) => {
+        it.elementoId = payload?.lastResponse?.getHeader?.('Boveda-Elemento') || null // para seguirlo en la NAS
         it.estado = 'listo'
         it.progreso = 100
         it.velocidad = it.restante = null

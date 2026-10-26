@@ -82,10 +82,17 @@ function guardarNota() {
   nota.value = null
 }
 
+// Mientras haya algo subido que todavía no aparece listo, se consulta la NAS (la galería solo lo hace mientras ve
+// pendientes, y una recarga en curso al terminar la subida podía dejar la lista sin enterarse).
+let sondeo = null
 onMounted(() => {
   document.addEventListener('paste', alPegar)
   boveda.cargar().catch(() => {}) // álbumes y etiquetas para elegir
+  sondeo = setInterval(() => {
+    if (subidas.items.some((i) => i.estado === 'listo' && !listoEn(i))) boveda.cargar(true).catch(() => {})
+  }, 5000)
 })
+onBeforeUnmount(() => clearInterval(sondeo))
 onBeforeUnmount(() => document.removeEventListener('paste', alPegar))
 
 // Álbumes: para lo que se agregue (it = null) o para un archivo de la lista.
@@ -120,11 +127,21 @@ async function crearAlbum(datos) {
   }
 }
 
-// Ya subido: cómo va en la NAS (la cola de cifrado). Siempre empieza con «Subido · ».
+// Ya subido: cómo va en la NAS (la cola de cifrado). Siempre empieza con «Subido · ». Se sigue por el id que
+// devuelve la NAS al terminar la subida (o, si no lo hay, por la subida o la huella).
 const idSubida = (it) => it.upload?.url?.split('/').pop()
+const elemento = (it) =>
+  (it.elementoId && boveda.items.find((x) => x.id === it.elementoId)) ||
+  boveda.items.find((x) => x.uploadId && x.uploadId === idSubida(it)) ||
+  (it.sha && boveda.huellas.get(it.sha)) ||
+  null
+const listoEn = (it) => {
+  const v = it.estado === 'listo' && elemento(it)
+  return v && v.status === 'listo' && v.m ? v.id : null
+}
 function enNas(it) {
-  if (it.sha && boveda.huellas.get(it.sha)) return 'Subido · ya está cifrado en la bóveda'
-  const v = boveda.items.find((x) => x.uploadId && x.uploadId === idSubida(it))
+  if (listoEn(it)) return 'Subido · ✓ listo en la bóveda'
+  const v = elemento(it)
   if (v?.status === 'procesando') return `Subido · cifrando en la NAS ${v.progreso ?? 0}%`
   if (v?.status === 'error') return `Subido · error al cifrar: ${v.error}`
   const fila = boveda.items.filter((x) => x.status === 'en_cola').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
@@ -220,6 +237,7 @@ const COLOR = { revisando: 'info', esperando: 'secondary', subiendo: 'primary', 
         </div>
         <div class="flex-grow-1 text-truncate fw-semibold" :title="it.nombre">{{ it.nombre }}</div>
         <span class="small text-body-secondary text-nowrap">{{ tamano(it.tam) }}</span>
+        <RouterLink v-if="listoEn(it)" :to="`/ver/${listoEn(it)}`" class="btn btn-sm btn-outline-primary py-0" title="Abrirlo en la bóveda"><CIcon icon="cil-media-play" size="sm" class="me-1" />Ver</RouterLink>
         <CButton v-if="it.estado === 'error'" color="link" size="sm" @click="subidas.reintentar(it)">Reintentar</CButton>
         <CButton v-if="it.estado === 'duplicado'" color="link" size="sm" @click="subidas.subirIgual(it)">Subir igual</CButton>
         <CButton v-if="it.estado !== 'listo'" color="link" size="sm" class="text-danger" @click="subidas.cancelar(it)">{{ it.estado === 'duplicado' ? 'Quitar' : 'Cancelar' }}</CButton>

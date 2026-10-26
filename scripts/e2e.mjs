@@ -644,6 +644,8 @@ try {
   await filaNota.getByLabel('Nota de este archivo').fill('Cumpleaños de la abuela')
   await filaNota.getByLabel('Nota de este archivo').blur()
   await filaNota.getByText(/^Subido · /).waitFor({ timeout: 60000 })
+  await filaNota.getByText('Subido · ✓ listo en la bóveda').waitFor({ timeout: 60000 }) // Subir sigue el cifrado
+  if (!/#\/ver\/[0-9a-f-]{36}$/.test(await filaNota.getByTitle('Abrirlo en la bóveda').getAttribute('href'))) throw new Error('el botón Ver no lleva al elemento')
   await page.getByRole('button', { name: 'Cambiar' }).first().click() // quitar el álbum para lo que siga
   await page.locator('.modal').getByLabel(/Desde el detalle/).uncheck()
   await page.locator('.modal').getByRole('button', { name: 'Guardar' }).click()

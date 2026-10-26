@@ -36,7 +36,8 @@ const tus = new TusServer({
       },
     })
     console.log(`[subida] ${((upload.size ?? 0) / 1e6).toFixed(1)} MB → ${video.id} en cola`)
-    return {}
+    // El navegador sigue el elemento por su id (para mostrar en Subir cuándo quedó cifrado).
+    return { headers: { 'Boveda-Elemento': video.id } }
   },
 })
 
