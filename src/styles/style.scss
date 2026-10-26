@@ -146,3 +146,6 @@ body { background-color: #f4f4f8; }
 .presionable { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .fab-seleccionar { position: fixed; right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom)); z-index: 1030; border-radius: 2rem; }
 .zip-clave { font-size: .95rem; letter-spacing: .03em; padding: .3rem .5rem; border-radius: .375rem; background: var(--cui-tertiary-bg); user-select: all; word-break: break-all; }
+.etq-chip { display: inline-flex; align-items: center; gap: .25rem; padding: .1rem .2rem .1rem .5rem; border-radius: 1rem; font-size: .8rem; background: var(--cui-tertiary-bg); color: var(--cui-body-color); border: 1px solid var(--cui-border-color); }
+.etq-quitar { border: 0; background: none; color: var(--cui-secondary-color); padding: 0 .25rem; line-height: 1; font-size: 1rem; }
+.etq-sugerida { border: 1px solid var(--cui-border-color); background: none; color: var(--cui-body-color); border-radius: 1rem; padding: 0 .5rem; font-size: .8rem; }

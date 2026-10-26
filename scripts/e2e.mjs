@@ -144,8 +144,18 @@ try {
 
   // Fotos y archivos
   await page.goto(`${base}/#/subir`)
+  // Discretas: el editor está cerrado (solo el ícono); se abre con él y las que hay solo se ven con ▾.
+  if (await page.getByPlaceholder('Escribe y Enter…').count()) throw new Error('el editor de etiquetas de Subir debería empezar cerrado')
+  await page.getByTitle('Etiquetas para lo que subas').click()
   const campoSubir = page.getByPlaceholder('Escribe y Enter…')
+  if (await page.locator('.etq-sugerida').count()) throw new Error('las etiquetas que hay no deberían verse sin pedirlas')
+  await page.getByTitle('Ver las etiquetas que hay').click()
+  await page.locator('.etq-sugerida', { hasText: 'Viajes' }).waitFor()
+  await page.getByTitle('Ver las etiquetas que hay').click()
   await campoSubir.fill('WhatsApp'); await campoSubir.press('Enter')
+  await page.getByTitle('Etiquetas para lo que subas').click() // se cierra con el mismo ícono
+  if (await page.getByPlaceholder('Escribe y Enter…').count()) throw new Error('el ícono debería cerrar el editor')
+  await page.getByTitle('Etiquetas para lo que subas').getByText('1').waitFor() // afuera solo la cantidad
   await page.locator('input[type=file]').setInputFiles([foto, notas])
   // Miniatura local de la foto mientras se sube; la nota, con ícono. Sigue el switch de difuminar.
   const miniFoto = page.locator('.card', { hasText: 'IMG_2000' }).locator('.subir-mini img')
@@ -324,6 +334,11 @@ try {
   await filaWa.getByTitle('Etiquetas de este archivo').click()
   const campoWa = filaWa.getByPlaceholder('Escribe y Enter…')
   await campoWa.fill('Familia'); await campoWa.press('Enter')
+  await filaWa.getByTitle('Etiquetas de este archivo').getByText('2').waitFor() // WhatsApp + Familia: solo la cantidad
+  if (await filaWa.locator('.etq-chip', { hasText: 'Familia' }).count() !== 1) throw new Error('con el editor abierto se ve la etiqueta')
+  await page.waitForTimeout(31_000) // sin tocarlo, se cierra solo
+  if (await filaWa.getByPlaceholder('Escribe y Enter…').count()) throw new Error('el editor de etiquetas debería cerrarse solo a los 30 s')
+  if (await filaWa.getByText('Familia').count()) throw new Error('cerrado no debería leerse ninguna etiqueta')
   await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
   const tarjetaWa = page.locator('.video-card', { hasText: '6 de mar de 2019' })
   await tarjetaWa.locator('.badge', { hasText: 'Familia' }).waitFor({ timeout: 60000 })
@@ -633,20 +648,21 @@ try {
   const fotoNota = path.join(dir, 'cumple.jpg')
   execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=500x300', '-frames:v', '1', fotoNota])
   await page.goto(`${base}/#/subir`)
-  await page.getByRole('button', { name: 'Elegir álbumes' }).click()
+  await page.getByTitle('Álbumes para lo que subas').click()
   await page.locator('.modal').getByLabel(/Desde el detalle/).check()
   await page.locator('.modal').getByRole('button', { name: 'Guardar' }).click()
-  await page.locator('.badge', { hasText: 'Desde el detalle' }).first().waitFor()
+  await page.getByTitle('Álbumes para lo que subas').getByText('1').waitFor() // solo la cantidad, no el nombre
   await page.locator('input[type=file]').setInputFiles([fotoNota])
   const filaNota = page.locator('.card', { hasText: 'cumple.jpg' })
-  await filaNota.getByTitle('Álbumes de este archivo').getByText('Desde el detalle').waitFor()
+  await filaNota.getByTitle('Álbumes de este archivo').getByText('1').waitFor()
+  if (await filaNota.getByText('Desde el detalle').count()) throw new Error('el nombre del álbum no debería verse en la fila')
   await filaNota.getByTitle('Nota de este archivo').click()
   await filaNota.getByLabel('Nota de este archivo').fill('Cumpleaños de la abuela')
   await filaNota.getByLabel('Nota de este archivo').blur()
   await filaNota.getByText(/^Subido · /).waitFor({ timeout: 60000 })
   await filaNota.getByText('Subido · ✓ listo en la bóveda').waitFor({ timeout: 60000 }) // Subir sigue el cifrado
   if (!/#\/ver\/[0-9a-f-]{36}$/.test(await filaNota.getByTitle('Abrirlo en la bóveda').getAttribute('href'))) throw new Error('el botón Ver no lleva al elemento')
-  await page.getByRole('button', { name: 'Cambiar' }).first().click() // quitar el álbum para lo que siga
+  await page.getByTitle('Álbumes para lo que subas').click() // quitar el álbum para lo que siga
   await page.locator('.modal').getByLabel(/Desde el detalle/).uncheck()
   await page.locator('.modal').getByRole('button', { name: 'Guardar' }).click()
   await page.locator('.sidebar a', { hasText: 'Álbumes' }).click()

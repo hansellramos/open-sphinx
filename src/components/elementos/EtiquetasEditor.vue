@@ -1,11 +1,14 @@
 <script setup>
-// Editor de etiquetas: chips + campo con sugerencias. Enter o coma agrega; la x quita.
+// Editor de etiquetas, discreto: las puestas en gris, campo que autocompleta y las que hay solo al pedirlas (▾),
+// que se cierran solas a los 30 s. Enter o coma agrega; la × quita.
 import { ref, computed } from 'vue'
+import { useOcultable } from '@/lib/ocultable'
 
 const props = defineProps({ modelValue: { type: Array, default: () => [] }, sugerencias: { type: Array, default: () => [] } })
 const emit = defineEmits(['update:modelValue'])
 const texto = ref('')
 const id = `etq-${Math.random().toString(36).slice(2, 8)}`
+const ocultable = useOcultable() // la lista de las que hay (▾)
 
 const disponibles = computed(() => props.sugerencias.filter((s) => !props.modelValue.some((m) => m.toLowerCase() === s.name.toLowerCase())))
 
@@ -26,29 +29,33 @@ function tecla(e) {
     agregar()
   } else if (e.key === 'Backspace' && !texto.value && props.modelValue.length) quitar(props.modelValue.at(-1))
 }
-const colorDe = (n) => props.sugerencias.find((s) => s.name === n)?.color ?? 'primary'
 </script>
 
 <template>
-  <div>
-    <div class="d-flex flex-wrap gap-1 align-items-center border rounded p-2">
-      <CBadge v-for="n in modelValue" :key="n" :color="colorDe(n)" class="d-inline-flex align-items-center gap-1 py-1 px-2">
-        {{ n }}<CCloseButton white style="width: .5rem; height: .5rem" @click="quitar(n)" />
-      </CBadge>
+  <div @keydown="ocultable.tocar('lista')" @pointerdown="ocultable.tocar('lista')">
+    <div class="d-flex flex-wrap gap-1 align-items-center border rounded p-1 ps-2">
+      <span v-for="n in modelValue" :key="n" class="etq-chip">
+        {{ n }}<button type="button" class="etq-quitar" :aria-label="`Quitar ${n}`" @click="quitar(n)">×</button>
+      </span>
       <input
         v-model="texto"
         :list="id"
         class="border-0 bg-transparent flex-grow-1 text-body"
-        style="min-width: 8rem; outline: none"
+        style="min-width: 7rem; outline: none"
         placeholder="Escribe y Enter…"
         maxlength="40"
+        autocomplete="off"
         @keydown="tecla"
         @change="texto && sugerencias.some((s) => s.name === texto) && agregar()"
       />
       <datalist :id="id"><option v-for="s in disponibles" :key="s.id" :value="s.name" /></datalist>
+      <button v-if="disponibles.length" type="button" class="btn btn-sm btn-link text-body-secondary p-0 px-1" :aria-expanded="ocultable.abiertos.value.has('lista')" title="Ver las etiquetas que hay" @click="ocultable.alternar('lista')">
+        <CIcon :icon="ocultable.abiertos.value.has('lista') ? 'cil-chevron-top' : 'cil-chevron-bottom'" size="sm" />
+      </button>
     </div>
-    <div v-if="disponibles.length" class="d-flex flex-wrap gap-1 mt-2">
-      <CButton v-for="s in disponibles.slice(0, 12)" :key="s.id" size="sm" :color="s.color" variant="outline" class="py-0 px-2" @click="agregar(s.name)">+ {{ s.name }}</CButton>
+    <!-- Las que hay: solo al pedirlas (▾) y se cierran solas a los 30 s -->
+    <div v-if="ocultable.abiertos.value.has('lista') && disponibles.length" class="d-flex flex-wrap gap-1 mt-1">
+      <button v-for="s in disponibles" :key="s.id" type="button" class="etq-sugerida" @click="agregar(s.name)">+ {{ s.name }}</button>
     </div>
   </div>
 </template>
