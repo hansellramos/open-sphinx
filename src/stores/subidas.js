@@ -101,11 +101,16 @@ export const useSubidasStore = defineStore('subidas', () => {
   let revisando = false
 
   function agregar(files) {
+    // En modo Horus lo que se sube entra a lo elegido (si no, no se vería al volver a la galería).
+    const boveda = useBovedaStore()
+    const foco = boveda.foco
+    const tagsFoco = foco ? foco.etiquetas.map((id) => boveda.etiqueta(id)?.name).filter(Boolean) : []
+    const albsFoco = foco ? foco.albumes.filter((id) => boveda.album(id)) : []
     for (const file of files)
       items.value.push({
         id: ++seq, file, nombre: file.name, tam: file.size, progreso: 0, estado: 'revisando', error: null,
-        tags: [...etiquetas.value], fecha: fechaDelNombre(file.name), manual: false, titulo: null, sha: null, igual: null, archivo: fechaArchivo(file),
-        video: esVideo(file), reducir: esVideo(file) ? reducir.value : null, mini: null, albumes: [...albumes.value], nota: '',
+        tags: [...new Set([...etiquetas.value, ...tagsFoco])], fecha: fechaDelNombre(file.name), manual: false, titulo: null, sha: null, igual: null, archivo: fechaArchivo(file),
+        video: esVideo(file), reducir: esVideo(file) ? reducir.value : null, mini: null, albumes: [...new Set([...albumes.value, ...albsFoco])], nota: '',
       })
     miniaturas()
     revisar()

@@ -35,6 +35,8 @@ model Vault {
   recoveryWrap String // JSON {salt, iv, ct}
   metaKeyWrap  String? // JSON {epk, iv, ct}: clave de metadatos de la bóveda, sellada con la pública
   catalog      String? // catálogo cifrado con la clave de metadatos (etiquetas, colores…)
+  horus        String? // modo Horus activo: JSON {desde, ids (permitidos), catalogo (reducido, cifrado)}; ver server/lib/horus.ts
+  catalogoPendiente String? // al salir del modo: el catálogo reducido, para que el navegador lo una al completo
   createdAt    DateTime @default(now())
 }
 

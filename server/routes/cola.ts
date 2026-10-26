@@ -20,7 +20,7 @@ r.get('/', async (req, res) => {
     recibiendo.push({ id, nombre: String(info.metadata?.filename ?? 'archivo').slice(0, 200), recibido: s.size, total: Number(info.size) || null, actualizado: s.mtime })
   }
   const vs = await prisma.video.findMany({
-    where: { status: { in: ['en_cola', 'procesando', 'error'] } },
+    where: { status: { in: ['en_cola', 'procesando', 'error'] }, ...(req.horus && { id: { in: req.horus.ids } }) },
     orderBy: { createdAt: 'asc' },
     select: { id: true, originalName: true, status: true, progreso: true, error: true, size: true, createdAt: true },
   })

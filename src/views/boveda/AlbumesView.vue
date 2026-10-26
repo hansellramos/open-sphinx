@@ -37,7 +37,7 @@ onMounted(() => boveda.cargar().catch((e) => toast.error(e)))
 <template>
   <PageHeader title="Álbumes" :subtitle="`${boveda.albumes.length} ${boveda.albumes.length === 1 ? 'álbum' : 'álbumes'}`">
     <CFormInput v-if="boveda.albumes.length" v-model="buscar" placeholder="Buscar álbum…" style="max-width: 14rem" />
-    <CButton color="primary" @click="creando = true"><CIcon icon="cil-plus" class="me-1" />Nuevo álbum</CButton>
+    <CButton v-if="!boveda.horus" color="primary" @click="creando = true"><CIcon icon="cil-plus" class="me-1" />Nuevo álbum</CButton>
   </PageHeader>
 
   <div v-if="!boveda.cargado" class="text-center py-5"><CSpinner /></div>
@@ -45,7 +45,7 @@ onMounted(() => boveda.cargar().catch((e) => toast.error(e)))
     <CCardBody>
       <CIcon icon="cil-library" size="3xl" class="text-secondary mb-3" />
       <p class="mb-3">Todavía no hay álbumes. Crea uno aquí, o elige fotos en la galería («Seleccionar») y agrégalas a un álbum nuevo.</p>
-      <CButton color="primary" @click="creando = true">Crear el primero</CButton>
+      <CButton v-if="!boveda.horus" color="primary" @click="creando = true">Crear el primero</CButton>
     </CCardBody>
   </CCard>
   <div v-else class="albumes-grid mb-4">

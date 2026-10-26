@@ -17,6 +17,11 @@ function qs(params) {
   return str ? `?${str}` : ''
 }
 
+// Modo Horus: cada respuesta trae su estado; si cambia (se activó o se salió desde otro dispositivo), se avisa.
+let horusVisto = null
+const oyentesHorus = new Set()
+export const alCambiarHorus = (fn) => oyentesHorus.add(fn)
+
 async function request(method, url, { body, params } = {}) {
   const res = await fetch(`/api${url}${qs(params)}`, {
     method,
@@ -26,6 +31,11 @@ async function request(method, url, { body, params } = {}) {
   })
   if (res.status === 401 && !url.startsWith('/auth/')) {
     router.replace({ name: 'Entrar', query: { r: router.currentRoute.value.fullPath, expirada: 1 } })
+  }
+  const hz = res.headers.get('Esfinge-Horus')
+  if (hz !== null) {
+    if (horusVisto !== null && hz !== horusVisto) for (const f of oyentesHorus) f(hz)
+    horusVisto = hz
   }
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null
   if (!res.ok) throw new ApiError(data?.error || 'Ocurrió un error', res.status, data)

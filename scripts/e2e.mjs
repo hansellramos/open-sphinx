@@ -884,6 +884,81 @@ try {
   await page.getByText(/Recomprimido.*·.*(KB|MB)/).first().waitFor({ timeout: 60000 })
   paso('Por qué pesa: tasa, cuadros por segundo y razones en los detalles; recomprimir al mismo tamaño con la tasa elegida')
 
+  // Modo Horus: solo «Trabajo» se ve (en toda la bóveda) hasta salir con la passkey.
+  const urlAccion = page.url().replace(/\?.*$/, '')
+  const idAccion = urlAccion.split('/').at(-1)
+  await page.getByPlaceholder('Escribe y Enter…').fill('Trabajo')
+  await page.getByPlaceholder('Escribe y Enter…').press('Enter')
+  await page.waitForResponse((r) => r.url().includes('/meta') && r.request().method() === 'PUT')
+  const idsAntes = await page.evaluate(async () => (await (await fetch('/api/videos', { credentials: 'include' })).json()).map((v) => v.id))
+  const oculto = idsAntes.find((id) => id !== idAccion)
+  await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
+  const viajesAntes = Number((await page.locator('.etiqueta-tile', { hasText: 'Viajes' }).locator('.small').innerText()).match(/\d+/)[0])
+  await page.locator('.sidebar a', { hasText: 'Ajustes' }).click()
+  await page.locator('.horus-card').getByLabel(/^Trabajo/).check()
+  await page.locator('.horus-card').getByRole('button', { name: 'Activar modo Horus (1)' }).click()
+  await page.locator('.modal').getByRole('button', { name: 'Activar', exact: true }).click()
+  await page.getByText('Modo Horus activo en todos tus dispositivos').waitFor()
+  await page.locator('.logo-horus').waitFor()
+  if (await page.locator('.sidebar a', { hasText: 'Papelera' }).count()) throw new Error('en modo Horus no hay papelera')
+  if (await page.getByText('Passkeys', { exact: true }).count()) throw new Error('en modo Horus Ajustes solo deja salir')
+  // La NAS lo hace cumplir: solo lista lo permitido y no entrega lo demás ni deja borrar.
+  const api = await page.evaluate(async ([oc, vis]) => {
+    const lista = await (await fetch('/api/videos', { credentials: 'include' })).json()
+    return {
+      ids: lista.map((v) => v.id),
+      thumb: (await fetch(`/api/videos/${oc}/archivo/thumb.jpg`, { credentials: 'include', cache: 'no-store' })).status,
+      borrar: (await fetch(`/api/videos/${vis}`, { method: 'DELETE', credentials: 'include' })).status,
+      papelera: (await fetch('/api/videos/papelera', { credentials: 'include' })).status,
+      horus: (await fetch('/api/boveda', { credentials: 'include' })).headers.get('Esfinge-Horus'),
+    }
+  }, [oculto, idAccion])
+  if (api.ids.join() !== idAccion || api.thumb !== 404 || api.borrar !== 403 || api.papelera !== 403 || api.horus === '0') throw new Error(`horus en la NAS: ${JSON.stringify(api)}`)
+  await page.goto(`${base}/#/papelera`)
+  await page.waitForURL(/#\/galeria/)
+  if ((await page.locator('.video-card, .mini').count()) !== 1) throw new Error('la galería debería mostrar solo 1')
+  await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
+  await page.locator('.etiqueta-tile', { hasText: 'Trabajo' }).waitFor()
+  if ((await page.locator('.etiqueta-tile').count()) !== 1) throw new Error('solo se ve la etiqueta elegida')
+  // Solo mirar, pero se etiqueta: «Viajes» ya existe (oculta) y se crea igual sin revelarla.
+  await page.goto(`${base}/#/ver/${idAccion}`)
+  await page.getByText(/Tasa .* Mbps/).waitFor()
+  if (await page.getByTitle('Borrar', { exact: true }).count()) throw new Error('en modo Horus no se borra')
+  if (await page.getByRole('button', { name: 'Recomprimir…' }).count()) throw new Error('en modo Horus no se exporta')
+  if (await page.getByTitle('Ver las etiquetas que hay').count()) await page.getByTitle('Ver las etiquetas que hay').click()
+  if (await page.getByText('Familia', { exact: true }).count()) throw new Error('se ve una etiqueta ajena')
+  await page.getByPlaceholder('Escribe y Enter…').fill('Viajes')
+  await page.getByPlaceholder('Escribe y Enter…').press('Enter')
+  await page.waitForResponse((r) => r.url().includes('/meta') && r.request().method() === 'PUT')
+  await page.goto(`${base}/#/ver/${oculto}`)
+  await page.waitForURL(/#\/galeria|#\/ver\//)
+  if (await page.locator('video.player, img.foto').count()) throw new Error('abrió un elemento oculto')
+  // Subir dentro del modo: entra a «Trabajo» y se ve.
+  const fotoHorus = path.join(dir, 'TRABAJO.jpg')
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=800x600', '-frames:v', '1', '-vf', 'hue=h=90', fotoHorus])
+  await page.goto(`${base}/#/subir`)
+  await page.locator('input[type=file]').setInputFiles([fotoHorus])
+  await page.locator('.card', { hasText: 'TRABAJO' }).getByText(/Subido · ✓ listo/).waitFor({ timeout: 60000 })
+  await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.video-card, .mini').length === 2, null, { timeout: 20000 })
+  await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
+  await page.locator('.etiqueta-tile', { hasText: 'Trabajo' }).getByText('2 elementos').waitFor()
+  paso('modo Horus: solo lo elegido (lo hace cumplir la NAS), esfinge reflejada, solo mirar; se etiqueta y se sube dentro del modo')
+
+  // Salir con la passkey: se ve todo y «Viajes» queda una sola (con lo etiquetado durante el modo).
+  await page.locator('.sidebar a', { hasText: 'Ajustes' }).click()
+  await page.getByRole('button', { name: 'Salir del modo Horus' }).click()
+  await page.getByText('Saliste del modo Horus').waitFor()
+  if (await page.locator('.logo-horus').count()) throw new Error('la esfinge debería volver a mirar al frente')
+  await page.locator('.sidebar a', { hasText: 'Papelera' }).waitFor()
+  await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
+  await page.locator('.etiqueta-tile', { hasText: 'Familia' }).waitFor()
+  if ((await page.locator('.etiqueta-tile', { hasText: 'Viajes' }).count()) !== 1) throw new Error('«Viajes» debería quedar una sola')
+  await page.locator('.etiqueta-tile', { hasText: 'Viajes' }).getByText(`${viajesAntes + 1} elementos`).waitFor({ timeout: 20000 })
+  const despues = await page.evaluate(async () => (await (await fetch('/api/videos', { credentials: 'include' })).json()).length)
+  if (despues !== idsAntes.length + 1) throw new Error(`tras salir deberían verse ${idsAntes.length + 1}, hay ${despues}`)
+  paso('salir del modo Horus con la passkey: vuelve todo y las etiquetas creadas en el modo se unen a las que ya existían')
+
   // Migración de un video del MVP (título y etiqueta sin cifrar en la base).
   const Database = (await import('better-sqlite3')).default
   const db = new Database(`${dir}/db/boveda.db`)

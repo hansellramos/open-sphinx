@@ -3,7 +3,8 @@
 // así que se carga todo de una vez y se filtra aquí. Al bloquear se borra.
 import { ref, computed, watch, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
-import { api } from '@/services/api'
+import { api, alCambiarHorus } from '@/services/api'
+import { usarPasskey } from '@/lib/webauthn'
 import { sufijoExport } from '@/lib/formato'
 import { conRotacion, leerRotacion, sumarRotacion } from '@/lib/rotacion'
 import { numerarFragmentos } from '@/lib/fragmentos'
@@ -19,6 +20,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   const items = ref([]) // { id, size, status, error, createdAt, keyWrap, meta, m }
   const catalogo = ref({ v: 1, tags: [], albumes: [] })
   const cargado = ref(false)
+  const horus = ref(null) // modo Horus activo (en toda la bóveda): { desde, n } o null
   const metaKey = shallowRef(null)
   const thumbs = new Map() // id → blob URL
   const secuencia = ref([]) // ids en el orden de la última lista vista, para pasar al anterior/siguiente
@@ -72,10 +74,12 @@ export const useBovedaStore = defineStore('boveda', () => {
       const [vault, lista] = await Promise.all([api.get('/boveda'), api.get('/videos')])
       publicKey = vault.publicKey
       metaKey.value ??= await asegurarMetaKey(vault)
-      if (vault.catalog) catalogo.value = await decryptJSON(metaKey.value, vault.catalog)
+      catalogo.value = vault.catalog ? await decryptJSON(metaKey.value, vault.catalog) : { v: 1, tags: [], albumes: [] }
       catalogo.value.albumes ??= []
+      horus.value = vault.horus
       const prev = new Map(items.value.map((v) => [v.id, v]))
       items.value = await Promise.all(lista.map((v) => descifrar(v, prev.get(v.id))))
+      if (vault.catalogoPendiente) await fusionarHorus(vault.catalogoPendiente)
       await migrarLegado(lista)
       await aplicarSellados()
       await aplicarAjustes()
@@ -122,7 +126,7 @@ export const useBovedaStore = defineStore('boveda', () => {
     for (const v of listos.value.filter((x) => x.m.sellado)) {
       try {
         const extra = await decryptJSON(await auth.abrirSellado(v.m.sellado.k), v.m.sellado.d)
-        const nuevas = (extra.tags ?? []).filter((id) => etiqueta(id))
+        const nuevas = (extra.tags ?? []).map((id) => catalogo.value.alias?.[id] ?? id).filter((id) => etiqueta(id))
         const { sellado, ...m } = v.m
         m.tags = [...new Set([...(m.tags ?? []), ...nuevas])]
         // La fecha elegida a mano manda; la sacada del nombre solo si la foto no traía una propia (EXIF).
@@ -224,7 +228,9 @@ export const useBovedaStore = defineStore('boveda', () => {
   async function asignarEtiquetas(v, nombres) {
     const { ids, nuevos } = idsDe(nombres)
     if (nuevos.length) await guardarCatalogo()
-    return guardarMeta(v, { tags: ids })
+    // En modo Horus las etiquetas que no se ven siguen ahí (vuelven a verse al salir).
+    const ocultas = horus.value ? (v.m.tags ?? []).filter((id) => !etiqueta(id)) : []
+    return guardarMeta(v, { tags: [...ids, ...ocultas] })
   }
 
   const nombresDe = (v) => (v.m?.tags ?? []).map((id) => etiqueta(id)?.name).filter(Boolean)
@@ -246,6 +252,69 @@ export const useBovedaStore = defineStore('boveda', () => {
     catalogo.value.tags = catalogo.value.tags.filter((t) => t.id !== id)
     await guardarCatalogo()
   }
+
+  // ---------- modo Horus (ver server/lib/horus.ts) ----------
+  // Se elige qué mostrar (etiquetas y/o álbumes); el servidor guarda qué elementos se pueden ver y un catálogo
+  // reducido (solo lo elegido, cifrado aquí), y lo hace cumplir en todos los dispositivos hasta salir con una passkey.
+  // Durante el modo se puede subir (entra a lo elegido) y etiquetar; las etiquetas nuevas van al catálogo reducido
+  // y al salir se unen al completo (por nombre: si ya existía, queda una sola).
+  const foco = computed(() => (horus.value ? (catalogo.value.foco ?? { etiquetas: [], albumes: [] }) : null))
+
+  async function activarHorus({ etiquetas: tags = [], albumes: albs = [] }) {
+    const ids = new Set()
+    for (const v of listos.value) if (v.m.tags?.some((t) => tags.includes(t))) ids.add(v.id)
+    for (const a of catalogo.value.albumes.filter((x) => albs.includes(x.id))) for (const id of a.items) if (porId.value.has(id)) ids.add(id)
+    if (!ids.size) throw new Error('Lo elegido no tiene fotos, videos ni archivos')
+    const reducido = {
+      v: 1,
+      tags: catalogo.value.tags.filter((t) => tags.includes(t.id)),
+      albumes: catalogo.value.albumes.filter((a) => albs.includes(a.id)).map((a) => ({ ...a, items: a.items.filter((id) => ids.has(id)) })),
+      foco: { etiquetas: tags, albumes: albs },
+    }
+    await api.post('/horus', { ids: [...ids], catalogo: await encryptJSON(metaKey.value, reducido) })
+    await cargar(true)
+  }
+
+  async function salirHorus() {
+    const opts = await api.post('/horus/salir/opciones')
+    const { json } = await usarPasskey(opts)
+    await api.post('/horus/salir', { response: json })
+    await cargar(true)
+  }
+
+  // Une el catálogo reducido que quedó al salir con el completo: etiquetas nuevas (si ya había una con ese nombre,
+  // las fotos pasan a esa y queda un alias para lo que todavía se esté procesando) y lo agregado a los álbumes.
+  async function fusionarHorus(cifrado) {
+    const h = await decryptJSON(metaKey.value, cifrado)
+    const c = catalogo.value
+    c.alias ??= {}
+    const mapa = {}
+    for (const t of h.tags ?? []) {
+      if (c.tags.some((x) => x.id === t.id)) continue
+      const igual = c.tags.find((x) => x.name.toLowerCase() === t.name.toLowerCase())
+      if (igual) mapa[t.id] = c.alias[t.id] = igual.id
+      else c.tags.push(t)
+    }
+    for (const a of h.albumes ?? []) {
+      const b = c.albumes.find((x) => x.id === a.id)
+      if (b) b.items = [...new Set([...b.items, ...a.items])]
+    }
+    await api.put('/boveda/catalogo', { catalog: await encryptJSON(metaKey.value, c), fusion: true })
+    const cambiar = listos.value.filter((v) => v.m.tags?.some((id) => mapa[id]))
+    if (cambiar.length) await editarVarios(cambiar, (v) => ({ tags: [...new Set(v.m.tags.map((id) => mapa[id] ?? id))] }))
+  }
+
+  // Se activó o se salió desde otro dispositivo: recargar todo (y salir de lo que ya no existe).
+  alCambiarHorus(() => {
+    if (!cargado.value) return
+    cargar(true)
+      .then(async () => {
+        const { default: router, FUERA_DE_HORUS } = await import('@/router')
+        if (horus.value && FUERA_DE_HORUS.includes(router.currentRoute.value.name)) router.replace('/galeria')
+        else if (horus.value && router.currentRoute.value.name === 'Ver' && !porId.value.has(router.currentRoute.value.params.id)) router.replace('/galeria')
+      })
+      .catch(() => {})
+  })
 
   // ---------- álbumes (en el catálogo cifrado) ----------
   // { id, name, descripcion, items: [ids], portada: id | null, fechas: null (las de sus fotos) | { desde, hasta }
@@ -523,6 +592,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
     huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
+    horus, foco, activarHorus, salirHorus,
     favorito, renombrar, borrar, papelera, restaurar, borrarDefinitivo, restaurarOriginal, descartarOriginal, thumbUrl, olvidarMiniatura, publicKey: () => publicKey,
     cifrarMeta, descifrarMeta, editarVarios, fechaVarios, ubicacionVarios, etiquetasVarios,
     albumes, album, albumesDe, crearAlbum, editarAlbum, borrarAlbum, agregarAAlbum, quitarDeAlbum, portadaAlbum, asignarAlbumes,

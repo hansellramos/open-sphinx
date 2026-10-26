@@ -10,6 +10,7 @@ import { prisma } from '../db.ts'
 import { ARCHIVO_VALIDO, borrarSubida, videoDir } from '../lib/paths.ts'
 import { ALTOS, DIAS_PAPELERA, FILTROS, borrarExportacion, exportPublica, guardarClave, restaurarOriginal } from '../lib/exportar.ts'
 import { SubidasCifradas } from '../lib/temporal.ts'
+import { permitirNuevo } from '../lib/horus.ts'
 
 const MAX_BYTES = 20 * 1024 ** 3 // 20 GB
 
@@ -35,6 +36,7 @@ const tus = new TusServer({
         jobs: { create: { type: 'procesar' } },
       },
     })
+    await permitirNuevo(video.id) // en modo Horus, lo que se sube se puede ver
     console.log(`[subida] ${((upload.size ?? 0) / 1e6).toFixed(1)} MB → ${video.id} en cola`)
     // El navegador sigue el elemento por su id (para mostrar en Subir cuándo quedó cifrado).
     return { headers: { 'Boveda-Elemento': video.id } }
@@ -92,7 +94,7 @@ const publico = (v) => ({
 })
 
 r.get('/', async (req, res) => {
-  const vs = await prisma.video.findMany({ where: { borradoAt: null }, orderBy: { createdAt: 'desc' }, include: { tags: true } })
+  const vs = await prisma.video.findMany({ where: { borradoAt: null, ...(req.horus && { id: { in: req.horus.ids } }) }, orderBy: { createdAt: 'desc' }, include: { tags: true } })
   res.json(vs.map(publico))
 })
 

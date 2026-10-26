@@ -79,6 +79,7 @@ const FILTROS = [
 
 const item = computed(() => boveda.items.find((v) => v.id === route.params.id))
 const m = computed(() => item.value?.m)
+const ro = computed(() => !!boveda.horus) // modo Horus: solo mirar (y etiquetar)
 const peso = computed(() => (tipo.value === 'video' ? porQuePesa(item.value) : null))
 const sugerencia = computed(() => (tipo.value === 'video' ? aligerar(item.value) : null))
 const tipo = computed(() => (m.value ? boveda.tipo(item.value) : null))
@@ -433,9 +434,9 @@ onBeforeUnmount(() => {
         <CButton type="submit" color="primary">Guardar</CButton>
         <CButton color="secondary" variant="ghost" @click="editando = false">Cancelar</CButton>
       </form>
-      <h1 v-else-if="tipo === 'archivo'" class="page-title text-truncate h4 mb-0" role="button" title="Renombrar" @click="renombrar">{{ m.title }}</h1>
+      <h1 v-else-if="tipo === 'archivo'" class="page-title text-truncate h4 mb-0" role="button" title="Renombrar" @click="!ro && renombrar()">{{ m.title }}</h1>
       <h1 v-else class="page-title text-truncate h5 mb-0">{{ fechaCorta(boveda.fechaDe(item)) }}</h1>
-      <template v-if="!editando">
+      <template v-if="!editando && !ro">
         <CButton v-if="tipo !== 'video'" color="secondary" variant="ghost" class="ms-auto" :disabled="progreso !== null" title="Descargar el original" @click="descargar">
           <CIcon icon="cil-cloud-download" size="lg" /><span v-if="progreso !== null" class="ms-1 small">{{ progreso }}%</span>
         </CButton>
@@ -486,7 +487,7 @@ onBeforeUnmount(() => {
       <div class="small text-body-secondary">{{ extension(m.originalName) || 'Archivo' }} · {{ tamano(item.size) }}</div>
       <div class="d-flex gap-2 mt-2">
         <CButton v-if="previa" color="secondary" variant="outline" @click="mostrarPrevia">Ver aquí</CButton>
-        <CButton color="primary" :disabled="progreso !== null" @click="descargar"><CIcon icon="cil-cloud-download" class="me-1" />Descargar</CButton>
+        <CButton v-if="!ro" color="primary" :disabled="progreso !== null" @click="descargar"><CIcon icon="cil-cloud-download" class="me-1" />Descargar</CButton>
       </div>
     </div>
   </template>
@@ -503,7 +504,7 @@ onBeforeUnmount(() => {
         <RouterLink v-for="a in boveda.albumesDe(item)" :key="a.id" :to="`/albumes/${a.id}`" class="badge rounded-pill text-bg-secondary text-decoration-none fw-normal">
           <CIcon icon="cil-library" size="sm" class="me-1" />{{ a.name }}
         </RouterLink>
-        <CButton color="link" size="sm" class="py-0" @click="eligiendoAlbumes = true">{{ boveda.albumesDe(item).length ? 'Cambiar' : 'Agregar a un álbum' }}</CButton>
+        <CButton v-if="!ro" color="link" size="sm" class="py-0" @click="eligiendoAlbumes = true">{{ boveda.albumesDe(item).length ? 'Cambiar' : 'Agregar a un álbum' }}</CButton>
       </div>
       <div class="small text-body-secondary mt-3 mb-1">Nota</div>
       <form v-if="nota !== null" @submit.prevent="guardarNota">
@@ -513,7 +514,9 @@ onBeforeUnmount(() => {
           <CButton color="secondary" variant="ghost" size="sm" @click="nota = null">Cancelar</CButton>
         </div>
       </form>
+      <div v-else-if="m.nota && ro" class="nota-texto">{{ m.nota }}</div>
       <div v-else-if="m.nota" class="nota-texto" role="button" title="Editar la nota" @click="nota = m.nota">{{ m.nota }}</div>
+      <span v-else-if="ro" class="small text-body-secondary">Sin nota</span>
       <CButton v-else color="link" size="sm" class="p-0" @click="nota = ''">Agregar una nota</CButton>
     </CCol>
     <CCol md="5" class="small">
@@ -525,24 +528,24 @@ onBeforeUnmount(() => {
       </form>
       <div v-else class="mb-1">
         <CIcon icon="cil-calendar" class="me-2 text-body-secondary" />{{ m.takenAt ? `${etiquetaFecha} el ${fechaHora(m.takenAt)}` : `Subido el ${fechaHora(item.createdAt)}` }}<span v-if="m.takenAt && m.fechaOrigen === 'archivo'" class="text-body-secondary" title="La foto no traía fecha: es la del archivo según el iPhone"> (del archivo)</span>
-        <CButton color="link" size="sm" class="py-0" title="Cambiar la fecha" aria-label="Cambiar la fecha" @click="cambiarFecha">Cambiar</CButton>
+        <CButton v-if="!ro" color="link" size="sm" class="py-0" title="Cambiar la fecha" aria-label="Cambiar la fecha" @click="cambiarFecha">Cambiar</CButton>
       </div>
       <div v-if="tipo !== 'archivo'" class="mb-1">
         <CIcon icon="cil-location-pin" class="me-2 text-body-secondary" />
         <RouterLink v-if="m.location" :to="`/mapa?v=${item.id}`">{{ m.location.lat.toFixed(5) }}, {{ m.location.lon.toFixed(5) }} · ver en el mapa</RouterLink>
         <span v-else class="text-body-secondary">Sin ubicación</span>
-        <CButton color="link" size="sm" class="py-0" @click="ubicando = true">{{ m.location ? 'Cambiar' : 'Agregar' }}</CButton>
+        <CButton v-if="!ro" color="link" size="sm" class="py-0" @click="ubicando = true">{{ m.location ? 'Cambiar' : 'Agregar' }}</CButton>
       </div>
       <div v-if="tipo !== 'archivo'" class="mb-1 d-flex align-items-center min-w-0">
         <CIcon icon="cil-description" class="me-2 text-body-secondary flex-shrink-0" /><span class="text-truncate">{{ m.title }}</span>
-        <CButton color="link" size="sm" class="py-0" @click="renombrar">Renombrar</CButton>
+        <CButton v-if="!ro" color="link" size="sm" class="py-0" @click="renombrar">Renombrar</CButton>
       </div>
       <div v-if="m.device" class="mb-1"><CIcon icon="cil-devices" class="me-2 text-body-secondary" />{{ m.device }}</div>
       <div v-if="tipo === 'video'" class="mb-1">
         <CIcon icon="cil-action-redo" class="me-2 text-body-secondary" />{{ m.rotacion ? `Girado ${m.rotacion}°` : 'Sin girar' }}
-        <CButton color="link" size="sm" class="py-0" title="Girar 90° a la derecha" aria-label="Rotar el video" @click="rotar">Rotar</CButton>
+        <CButton v-if="!ro" color="link" size="sm" class="py-0" title="Girar 90° a la derecha" aria-label="Rotar el video" @click="rotar">Rotar</CButton>
       </div>
-      <div v-if="tipo === 'video'" class="mb-1">
+      <div v-if="tipo === 'video' && !ro" class="mb-1">
         <CIcon icon="cil-share-all" class="me-2 text-body-secondary" />Exportar
         <CButton color="link" size="sm" class="py-0" title="Exportar más pequeño, recomprimido o con filtro" @click="exportando = { alto: altosPosibles[0] ?? null, filtro: null, mbps: null }">Nueva…</CButton>
         <div v-for="e in exportaciones" :key="e.id" class="ms-4 mt-1">
@@ -565,14 +568,14 @@ onBeforeUnmount(() => {
           <CButton v-else-if="e.status === 'error'" color="danger" variant="ghost" size="sm" class="py-0" @click="borrarExport(e)">Quitar</CButton>
         </div>
       </div>
-      <div v-if="item.anteriorSize" class="mb-1">
+      <div v-if="item.anteriorSize && !ro" class="mb-1">
         <CIcon icon="cil-trash" class="me-2 text-body-secondary" />El original ({{ tamano(item.anteriorSize) }}) está en la
         <RouterLink to="/papelera">papelera</RouterLink>: se puede restaurar.
       </div>
       <div v-if="peso" class="mb-1 peso-video">
         <CIcon icon="cil-storage" class="me-2 text-body-secondary" />Tasa {{ peso.mbps.toLocaleString('es', { maximumFractionDigits: 1 }) }} Mbps
         <span :class="peso.nivel === 'normal' ? 'text-body-secondary' : 'text-warning'">· {{ peso.nivel }}</span>
-        <CButton v-if="sugerencia" color="link" size="sm" class="py-0" @click="exportando = { alto: sugerencia.alto, filtro: null, mbps: null }">{{ sugerencia.accion }}…</CButton>
+        <CButton v-if="sugerencia && !ro" color="link" size="sm" class="py-0" @click="exportando = { alto: sugerencia.alto, filtro: null, mbps: null }">{{ sugerencia.accion }}…</CButton>
         <ul class="small text-body-secondary mb-0 ms-4 ps-3">
           <li v-for="r in peso.razones" :key="r">{{ r }}</li>
           <li v-if="!m.fps">Los cuadros por segundo se miden al reproducirlo.</li>

@@ -4,6 +4,7 @@ import { Router } from 'express'
 import { writeFile } from 'node:fs/promises'
 import { prisma } from '../db.ts'
 import { bovedaJson } from '../lib/paths.ts'
+import { cambiarCatalogo } from '../lib/horus.ts'
 
 const r = Router()
 const B64U = /^[A-Za-z0-9_-]+$/
@@ -16,11 +17,20 @@ async function guardarCopia() {
   await writeFile(bovedaJson(), JSON.stringify(json, null, 1), { mode: 0o600 })
 }
 
+// En modo Horus el catálogo es el reducido (solo lo elegido); el completo no sale de aquí.
 r.get('/', async (req, res) => {
   const v = await prisma.vault.findUnique({ where: { id: 1 } })
+  const h = req.horus
   res.json(
     v
-      ? { publicKey: v.publicKey, recoveryWrap: JSON.parse(v.recoveryWrap), metaKeyWrap: v.metaKeyWrap ? JSON.parse(v.metaKeyWrap) : null, catalog: v.catalog }
+      ? {
+          publicKey: v.publicKey,
+          recoveryWrap: JSON.parse(v.recoveryWrap),
+          metaKeyWrap: v.metaKeyWrap ? JSON.parse(v.metaKeyWrap) : null,
+          catalog: h ? h.catalogo : v.catalog,
+          horus: h ? { desde: h.desde, n: h.ids.length } : null,
+          catalogoPendiente: h ? null : v.catalogoPendiente,
+        }
       : null,
   )
 })
@@ -55,10 +65,15 @@ r.put('/meta-key', async (req, res) => {
   res.json({ ok: true })
 })
 
+// fusion: el navegador ya unió el catálogo que quedó del modo Horus (catalogoPendiente) con este.
 r.put('/catalogo', async (req, res) => {
   const catalog = String(req.body?.catalog ?? '')
   if (!B64U.test(catalog) || catalog.length > 2_000_000) return res.status(400).json({ error: 'Catálogo no válido' })
-  await prisma.vault.update({ where: { id: 1 }, data: { catalog } })
+  if (req.horus) {
+    await cambiarCatalogo(catalog)
+    return res.json({ ok: true })
+  }
+  await prisma.vault.update({ where: { id: 1 }, data: { catalog, ...(req.body?.fusion && { catalogoPendiente: null }) } })
   await guardarCopia()
   res.json({ ok: true })
 })

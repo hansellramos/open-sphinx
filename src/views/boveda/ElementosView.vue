@@ -54,6 +54,7 @@ const modo = computed(() => route.name) // Galeria | Archivos | Favoritos | Etiq
 const enLista = computed(() => modo.value === 'Archivos')
 const conPendientes = computed(() => modo.value === 'Galeria' || modo.value === 'Archivos')
 const etq = computed(() => (modo.value === 'Etiqueta' ? boveda.etiqueta(route.params.id) : null))
+const ro = computed(() => !!boveda.horus) // modo Horus: solo mirar (y etiquetar)
 const alb = computed(() => (modo.value === 'Album' ? boveda.album(route.params.id) : null))
 // ?agregar=<álbum>: se eligen elementos para agregarlos a ese álbum.
 const destino = computed(() => (route.query.agregar ? boveda.album(String(route.query.agregar)) : null))
@@ -302,7 +303,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
     <CFormInput v-model="q" placeholder="Buscar…" style="max-width: 14rem" />
     <CButton :color="hayFiltros ? 'primary' : 'secondary'" variant="outline" @click="verFiltros = !verFiltros"><CIcon icon="cil-calendar" class="me-1" />Filtros</CButton>
     <CButton v-if="!sel && base.length" color="secondary" variant="outline" @click="empezarSeleccion"><CIcon icon="cil-check-circle" class="me-1" />Seleccionar</CButton>
-    <CButton v-if="modo === 'Album' && alb" color="primary" @click="agregarFotos"><CIcon icon="cil-image-plus" class="me-1" />Agregar fotos</CButton>
+    <CButton v-if="modo === 'Album' && alb && !ro" color="primary" @click="agregarFotos"><CIcon icon="cil-image-plus" class="me-1" />Agregar fotos</CButton>
     <CButton v-else-if="modo !== 'Album'" color="primary" @click="router.push('/subir')"><CIcon icon="cil-cloud-upload" class="me-1" />Subir</CButton>
   </PageHeader>
 
@@ -319,7 +320,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
           </RouterLink>
         </div>
       </div>
-      <CButton color="secondary" variant="ghost" size="sm" title="Editar el álbum" @click="editandoAlbum = true"><CIcon icon="cil-pencil" /></CButton>
+      <CButton v-if="!ro" color="secondary" variant="ghost" size="sm" title="Editar el álbum" @click="editandoAlbum = true"><CIcon icon="cil-pencil" /></CButton>
     </CCardBody>
   </CCard>
 
@@ -376,7 +377,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
       <CIcon :icon="{ Favoritos: 'cil-star', Archivos: 'cil-folder', Etiqueta: 'cil-tags', Album: 'cil-library' }[modo] ?? 'cil-image'" size="3xl" class="text-secondary mb-3" />
       <p class="mb-3">{{ { Favoritos: 'Aún no marcas favoritos: toca la estrella de cualquier elemento.', Etiqueta: 'Nada tiene esta etiqueta.', Archivos: 'Todavía no hay archivos.', Album: 'Este álbum está vacío.' }[modo] ?? 'Todavía no hay fotos ni videos.' }}</p>
       <CButton v-if="conPendientes" color="primary" @click="router.push('/subir')">Subir el primero</CButton>
-      <CButton v-if="alb" color="primary" @click="agregarFotos">Agregar fotos</CButton>
+      <CButton v-if="alb && !ro" color="primary" @click="agregarFotos">Agregar fotos</CButton>
     </CCardBody>
   </CCard>
   <p v-else-if="!filtrados.length" class="text-body-secondary">Nada coincide con los filtros.</p>
@@ -402,11 +403,13 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
             <CDropdownToggle color="link" size="sm" class="p-0 text-body-secondary" :caret="false" aria-label="Opciones">⋯</CDropdownToggle>
             <CDropdownMenu>
               <CDropdownItem as="button" @click="etiquetar = { v, nombres: boveda.nombresDe(v) }"><CIcon icon="cil-tags" class="me-2" />Etiquetas</CDropdownItem>
-              <CDropdownItem as="button" @click="editar = { v, title: v.m.title }"><CIcon icon="cil-pencil" class="me-2" />Renombrar</CDropdownItem>
-              <CDropdownItem as="button" @click="albumes = [v.id]"><CIcon icon="cil-library" class="me-2" />Álbumes…</CDropdownItem>
-              <CDropdownItem v-if="alb && boveda.tipo(v) !== 'archivo'" as="button" @click="usarDePortada(v.id)"><CIcon icon="cil-image" class="me-2" />Usar como portada</CDropdownItem>
-              <CDropdownItem v-if="alb" as="button" @click="quitarDelAlbum([v.id])"><CIcon icon="cil-minus" class="me-2" />Quitar del álbum</CDropdownItem>
-              <CDropdownItem as="button" class="text-danger" @click="borrar = v"><CIcon icon="cil-trash" class="me-2" />Borrar</CDropdownItem>
+              <template v-if="!ro">
+                <CDropdownItem as="button" @click="editar = { v, title: v.m.title }"><CIcon icon="cil-pencil" class="me-2" />Renombrar</CDropdownItem>
+                <CDropdownItem as="button" @click="albumes = [v.id]"><CIcon icon="cil-library" class="me-2" />Álbumes…</CDropdownItem>
+                <CDropdownItem v-if="alb && boveda.tipo(v) !== 'archivo'" as="button" @click="usarDePortada(v.id)"><CIcon icon="cil-image" class="me-2" />Usar como portada</CDropdownItem>
+                <CDropdownItem v-if="alb" as="button" @click="quitarDelAlbum([v.id])"><CIcon icon="cil-minus" class="me-2" />Quitar del álbum</CDropdownItem>
+                <CDropdownItem as="button" class="text-danger" @click="borrar = v"><CIcon icon="cil-trash" class="me-2" />Borrar</CDropdownItem>
+              </template>
             </CDropdownMenu>
           </CDropdown>
         </CListGroupItem>
@@ -443,11 +446,13 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
               <CDropdownToggle color="link" size="sm" class="p-0 text-body-secondary" :caret="false" aria-label="Opciones">⋯</CDropdownToggle>
               <CDropdownMenu>
                 <CDropdownItem as="button" @click="etiquetar = { v, nombres: boveda.nombresDe(v) }"><CIcon icon="cil-tags" class="me-2" />Etiquetas</CDropdownItem>
-                <CDropdownItem as="button" @click="editar = { v, title: v.m.title }"><CIcon icon="cil-pencil" class="me-2" />Renombrar</CDropdownItem>
-                <CDropdownItem as="button" @click="albumes = [v.id]"><CIcon icon="cil-library" class="me-2" />Álbumes…</CDropdownItem>
-                <CDropdownItem v-if="alb && boveda.tipo(v) !== 'archivo'" as="button" @click="usarDePortada(v.id)"><CIcon icon="cil-image" class="me-2" />Usar como portada</CDropdownItem>
-                <CDropdownItem v-if="alb" as="button" @click="quitarDelAlbum([v.id])"><CIcon icon="cil-minus" class="me-2" />Quitar del álbum</CDropdownItem>
-                <CDropdownItem as="button" class="text-danger" @click="borrar = v"><CIcon icon="cil-trash" class="me-2" />Borrar</CDropdownItem>
+                <template v-if="!ro">
+                  <CDropdownItem as="button" @click="editar = { v, title: v.m.title }"><CIcon icon="cil-pencil" class="me-2" />Renombrar</CDropdownItem>
+                  <CDropdownItem as="button" @click="albumes = [v.id]"><CIcon icon="cil-library" class="me-2" />Álbumes…</CDropdownItem>
+                  <CDropdownItem v-if="alb && boveda.tipo(v) !== 'archivo'" as="button" @click="usarDePortada(v.id)"><CIcon icon="cil-image" class="me-2" />Usar como portada</CDropdownItem>
+                  <CDropdownItem v-if="alb" as="button" @click="quitarDelAlbum([v.id])"><CIcon icon="cil-minus" class="me-2" />Quitar del álbum</CDropdownItem>
+                  <CDropdownItem as="button" class="text-danger" @click="borrar = v"><CIcon icon="cil-trash" class="me-2" />Borrar</CDropdownItem>
+                </template>
               </CDropdownMenu>
             </CDropdown>
           </div>
@@ -480,22 +485,22 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
         <CButton color="primary" :disabled="!nSel" @click="agregarADestino">Agregar a «{{ destino.name }}»</CButton>
       </template>
       <template v-else>
-        <CButton v-if="alb" color="secondary" variant="outline" :disabled="nSel !== 1" @click="usarDePortada(idsSel[0])">Portada</CButton>
-        <CButton v-if="alb" color="danger" variant="outline" :disabled="!nSel" @click="quitarDelAlbum(idsSel)">Quitar del álbum</CButton>
+        <CButton v-if="alb && !ro" color="secondary" variant="outline" :disabled="nSel !== 1" @click="usarDePortada(idsSel[0])">Portada</CButton>
+        <CButton v-if="alb && !ro" color="danger" variant="outline" :disabled="!nSel" @click="quitarDelAlbum(idsSel)">Quitar del álbum</CButton>
         <CDropdown placement="top-end">
           <CDropdownToggle color="secondary" variant="outline" :disabled="!nSel">Cambiar</CDropdownToggle>
           <CDropdownMenu>
-            <CDropdownItem as="button" @click="masiva = 'fecha'"><CIcon icon="cil-calendar" class="me-2" />Fecha…</CDropdownItem>
+            <CDropdownItem v-if="!ro" as="button" @click="masiva = 'fecha'"><CIcon icon="cil-calendar" class="me-2" />Fecha…</CDropdownItem>
             <CDropdownItem as="button" @click="masiva = 'etiquetas'"><CIcon icon="cil-tags" class="me-2" />Etiquetas…</CDropdownItem>
-            <CDropdownItem v-if="ubicables.length" as="button" @click="ubicandoVarios = true"><CIcon icon="cil-location-pin" class="me-2" />Ubicación…</CDropdownItem>
+            <CDropdownItem v-if="ubicables.length && !ro" as="button" @click="ubicandoVarios = true"><CIcon icon="cil-location-pin" class="me-2" />Ubicación…</CDropdownItem>
           </CDropdownMenu>
         </CDropdown>
-        <CButton color="secondary" variant="outline" :disabled="!nSel || progresoCompartir !== null" title="Compartir los elegidos" @click="compartirElegidos">
+        <CButton v-if="!ro" color="secondary" variant="outline" :disabled="!nSel || progresoCompartir !== null" title="Compartir los elegidos" @click="compartirElegidos">
           <CIcon icon="cil-share-boxed" /><span v-if="progresoCompartir !== null" class="small ms-1">{{ progresoCompartir }}%</span>
         </CButton>
-        <CButton color="secondary" variant="outline" :disabled="!nSel" title="ZIP con contraseña de los elegidos" @click="haciendoZip = true"><CIcon icon="cil-compress" class="me-1" />ZIP</CButton>
-        <CButton color="danger" variant="outline" :disabled="!nSel" title="Borrar los elegidos" @click="preguntandoBorrar = true"><CIcon icon="cil-trash" /></CButton>
-        <CButton color="primary" :disabled="!nSel" @click="albumes = idsSel"><CIcon icon="cil-library" class="me-1" />Álbumes…</CButton>
+        <CButton v-if="!ro" color="secondary" variant="outline" :disabled="!nSel" title="ZIP con contraseña de los elegidos" @click="haciendoZip = true"><CIcon icon="cil-compress" class="me-1" />ZIP</CButton>
+        <CButton v-if="!ro" color="danger" variant="outline" :disabled="!nSel" title="Borrar los elegidos" @click="preguntandoBorrar = true"><CIcon icon="cil-trash" /></CButton>
+        <CButton v-if="!ro" color="primary" :disabled="!nSel" @click="albumes = idsSel"><CIcon icon="cil-library" class="me-1" />Álbumes…</CButton>
       </template>
     </div>
   </div>

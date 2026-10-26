@@ -3,8 +3,10 @@ import { RouterLink } from 'vue-router'
 import icon from '@/assets/brand/icon.svg'
 import AppSidebarNav from '@/components/AppSidebarNav.vue'
 import { useSidebarStore } from '@/stores/sidebar.js'
+import { useBovedaStore } from '@/stores/boveda'
 
 const sidebar = useSidebarStore()
+const boveda = useBovedaStore()
 </script>
 
 <template>
@@ -19,7 +21,8 @@ const sidebar = useSidebarStore()
     <CSidebarHeader class="border-bottom">
       <RouterLink custom to="/" v-slot="{ href, navigate }">
         <CSidebarBrand as="a" :href="href" @click="navigate" class="d-flex align-items-center gap-2 text-decoration-none text-white">
-          <img :src="icon" height="32" alt="" />
+          <!-- En modo Horus, la esfinge mira hacia el otro lado (la única señal). -->
+          <img :src="icon" height="32" alt="" class="logo-esfinge" :class="{ 'logo-horus': boveda.horus }" />
           <span class="sidebar-brand-text">Esfinge</span>
         </CSidebarBrand>
       </RouterLink>
@@ -31,3 +34,9 @@ const sidebar = useSidebarStore()
     </CSidebarFooter>
   </CSidebar>
 </template>
+
+<style scoped>
+.logo-horus {
+  transform: scaleX(-1);
+}
+</style>

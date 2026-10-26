@@ -11,6 +11,7 @@ import {
 } from '@simplewebauthn/server'
 import { prisma } from './db.ts'
 import { PrismaSessionStore } from './lib/session-store.ts'
+import { leerHorus } from './lib/horus.ts'
 
 const RP_ID = process.env.RP_ID ?? 'localhost'
 const ORIGIN = process.env.ORIGIN ?? 'http://localhost:5181'
@@ -40,6 +41,12 @@ export function isAuthenticated(req, res, next) {
   res.status(401).json({ error: 'Sesión expirada' })
 }
 
+// En modo Horus no se agregan, renombran ni borran passkeys (sí se entra y se guarda el PRF de una al entrar).
+async function sinHorus(req, res, next) {
+  if (req.session?.ok && (await leerHorus())) return res.status(403).json({ error: 'No disponible en modo Horus' })
+  next()
+}
+
 const credencialPublica = (c) => ({ id: c.id, name: c.name, createdAt: c.createdAt, lastUsedAt: c.lastUsedAt, prf: !!c.prfWrap })
 
 export const authRoutes = Router()
@@ -51,7 +58,7 @@ authRoutes.get('/estado', async (req, res) => {
 
 // ---- Registro de passkey: solo si no hay ninguna (primera vez) o con sesión abierta (agregar otra) ----
 
-authRoutes.post('/registro/opciones', async (req, res) => {
+authRoutes.post('/registro/opciones', sinHorus, async (req, res) => {
   const existentes = await prisma.credential.findMany()
   if (existentes.length && !req.session?.ok) return res.status(403).json({ error: 'Ya hay passkeys registradas; entra primero' })
   const options = await generateRegistrationOptions({
@@ -68,7 +75,7 @@ authRoutes.post('/registro/opciones', async (req, res) => {
   res.json(options)
 })
 
-authRoutes.post('/registro/verificar', async (req, res) => {
+authRoutes.post('/registro/verificar', sinHorus, async (req, res) => {
   const existentes = await prisma.credential.count()
   if (existentes && !req.session?.ok) return res.status(403).json({ error: 'No autorizado' })
   const expectedChallenge = req.session.regChallenge
@@ -99,17 +106,16 @@ authRoutes.post('/registro/verificar', async (req, res) => {
 // ---- Entrar con passkey (discoverable: no hace falta escribir nada) ----
 
 authRoutes.post('/login/opciones', async (req, res) => {
-  const options = await generateAuthenticationOptions({ rpID: RP_ID, userVerification: 'required' })
+  const options = await opcionesPasskey()
   req.session.authChallenge = options.challenge
   res.json(options)
 })
 
-authRoutes.post('/login/verificar', async (req, res) => {
-  const expectedChallenge = req.session.authChallenge
-  delete req.session.authChallenge
-  const resp = req.body.response
+// Verifica una respuesta de passkey contra el desafío dado (entrar, salir del modo Horus). Devuelve la credencial
+// o un error { status, error } para responder.
+export async function verificarPasskey(resp, expectedChallenge: string | undefined) {
   const c = resp?.id && (await prisma.credential.findUnique({ where: { id: resp.id } }))
-  if (!expectedChallenge || !c) return res.status(400).json({ error: 'Passkey desconocida' })
+  if (!expectedChallenge || !c) return { status: 400, error: 'Passkey desconocida' }
   let v
   try {
     v = await verifyAuthenticationResponse({
@@ -121,10 +127,20 @@ authRoutes.post('/login/verificar', async (req, res) => {
       credential: { id: c.id, publicKey: new Uint8Array(c.publicKey), counter: c.counter, transports: c.transports ? JSON.parse(c.transports) : undefined },
     })
   } catch (e) {
-    return res.status(400).json({ error: `Passkey no válida: ${e.message}` })
+    return { status: 400, error: `Passkey no válida: ${e.message}` }
   }
-  if (!v.verified) return res.status(401).json({ error: 'Passkey no verificada' })
+  if (!v.verified) return { status: 401, error: 'Passkey no verificada' }
   await prisma.credential.update({ where: { id: c.id }, data: { counter: v.authenticationInfo.newCounter, lastUsedAt: new Date() } })
+  return { c }
+}
+export const opcionesPasskey = () => generateAuthenticationOptions({ rpID: RP_ID, userVerification: 'required' })
+
+authRoutes.post('/login/verificar', async (req, res) => {
+  const expectedChallenge = req.session.authChallenge
+  delete req.session.authChallenge
+  const r = await verificarPasskey(req.body.response, expectedChallenge)
+  if (!r.c) return res.status(r.status).json({ error: r.error })
+  const c = r.c
   await new Promise((ok, ko) => req.session.regenerate((e) => (e ? ko(e) : ok())))
   req.session.ok = true
   req.session.credentialId = c.id
@@ -150,12 +166,12 @@ authRoutes.put('/credenciales/:id/prf', isAuthenticated, async (req, res) => {
   res.json(credencialPublica(c))
 })
 
-authRoutes.put('/credenciales/:id', isAuthenticated, async (req, res) => {
+authRoutes.put('/credenciales/:id', isAuthenticated, sinHorus, async (req, res) => {
   const c = await prisma.credential.update({ where: { id: req.params.id }, data: { name: String(req.body.name || 'Passkey').slice(0, 60) } })
   res.json(credencialPublica(c))
 })
 
-authRoutes.delete('/credenciales/:id', isAuthenticated, async (req, res) => {
+authRoutes.delete('/credenciales/:id', isAuthenticated, sinHorus, async (req, res) => {
   if ((await prisma.credential.count()) <= 1) return res.status(400).json({ error: 'No puedes borrar la única passkey' })
   if (req.params.id === req.session.credentialId) return res.status(400).json({ error: 'No puedes borrar la passkey con la que entraste' })
   await prisma.credential.delete({ where: { id: req.params.id } })

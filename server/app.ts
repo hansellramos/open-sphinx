@@ -10,6 +10,8 @@ import etiquetaRoutes from './routes/etiquetas.ts'
 import exportadosRoutes from './routes/exportados.ts'
 import zipsRoutes from './routes/zips.ts'
 import colaRoutes from './routes/cola.ts'
+import horusRoutes from './routes/horus.ts'
+import { filtroHorus } from './lib/horus.ts'
 
 const app = express()
 app.disable('x-powered-by')
@@ -27,6 +29,8 @@ app.use('/api/auth', authRoutes)
 
 const api = express.Router()
 api.use(isAuthenticated)
+api.use(filtroHorus)
+api.use('/horus', horusRoutes)
 api.use('/boveda', bovedaRoutes)
 api.use('/videos', videoRoutes)
 api.use('/etiquetas', etiquetaRoutes)

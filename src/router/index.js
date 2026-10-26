@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import DefaultLayout from '@/layouts/DefaultLayout.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useBovedaStore } from '@/stores/boveda'
 
 const routes = [
   { path: '/configurar', name: 'Configurar', component: () => import('@/views/pages/ConfigurarView.vue'), meta: { public: true } },
@@ -33,6 +34,9 @@ const routes = [
   { path: '/:pathMatch(.*)*', redirect: '/galeria' },
 ]
 
+// Lo que no existe en modo Horus (solo mirar).
+export const FUERA_DE_HORUS = ['Exportados', 'Optimizar', 'Papelera', 'Cola']
+
 const router = createRouter({ history: createWebHashHistory(), routes, scrollBehavior: () => ({ top: 0 }) })
 
 router.beforeEach(async (to) => {
@@ -48,6 +52,7 @@ router.beforeEach(async (to) => {
   if (to.name === 'Entrar' && e.sesion && auth.desbloqueada) return { path: typeof to.query.r === 'string' ? to.query.r : '/galeria', replace: true }
   if (to.meta.public) return to.name === 'Configurar' ? { name: 'Entrar' } : true
   if (!e.sesion || !auth.desbloqueada) return { name: 'Entrar', query: to.fullPath !== '/galeria' ? { r: to.fullPath } : {} }
+  if (FUERA_DE_HORUS.includes(to.name) && useBovedaStore().horus) return { name: 'Galeria', replace: true }
   return true
 })
 

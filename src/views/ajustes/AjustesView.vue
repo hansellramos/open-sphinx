@@ -1,12 +1,12 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { errorPasskey } from '@/lib/webauthn'
 import PageHeader from '@/components/common/PageHeader.vue'
 import CodigoRecuperacion from '@/components/common/CodigoRecuperacion.vue'
-import { fecha } from '@/lib/formato'
+import { fecha, fechaCorta } from '@/lib/formato'
 import { useBovedaStore } from '@/stores/boveda'
 import { usePrivacidadStore } from '@/stores/privacidad'
 
@@ -73,11 +73,93 @@ async function generarCodigo() {
     toast.error(e)
   }
 }
-onMounted(() => Promise.all([cargar(), boveda.cargar()]).catch((e) => toast.error(e)))
+// Modo Horus: elegir qué se ve (etiquetas y/o álbumes), activarlo y salir con la passkey.
+const eligeEtq = ref([])
+const eligeAlb = ref([])
+const confirmarHorus = ref(false)
+const horusOcupado = ref(false)
+const totalHorus = computed(() => {
+  const ids = new Set()
+  for (const v of boveda.listos) if (v.m.tags?.some((t) => eligeEtq.value.includes(t))) ids.add(v.id)
+  for (const a of boveda.albumes) if (eligeAlb.value.includes(a.id)) for (const v of a.elementos) ids.add(v.id)
+  return ids.size
+})
+async function activarHorus() {
+  confirmarHorus.value = false
+  horusOcupado.value = true
+  try {
+    await boveda.activarHorus({ etiquetas: eligeEtq.value, albumes: eligeAlb.value })
+    eligeEtq.value = []
+    eligeAlb.value = []
+    toast.ok('Modo Horus activo en todos tus dispositivos')
+  } catch (e) {
+    toast.error(e)
+  } finally {
+    horusOcupado.value = false
+  }
+}
+async function salirHorus() {
+  horusOcupado.value = true
+  try {
+    await boveda.salirHorus()
+    toast.ok('Saliste del modo Horus: se ve todo otra vez')
+    cargar().catch(() => {})
+  } catch (e) {
+    toast.error(errorPasskey(e))
+  } finally {
+    horusOcupado.value = false
+  }
+}
+
+onMounted(async () => {
+  try {
+    await boveda.cargar()
+    if (!boveda.horus) await cargar()
+  } catch (e) {
+    toast.error(e)
+  }
+})
 </script>
 
 <template>
   <PageHeader title="Ajustes" />
+
+  <CCard class="mb-4 horus-card">
+    <CCardHeader class="fw-semibold">Modo Horus</CCardHeader>
+    <CCardBody v-if="boveda.horus">
+      <p class="mb-2">Activo desde el {{ fechaCorta(boveda.horus.desde) }} en todos tus dispositivos: solo se ve lo elegido.</p>
+      <p class="small text-body-secondary">Para volver a ver todo, confirma con tu passkey. Las etiquetas que se crearon durante el modo se unen a las que ya tenías.</p>
+      <CButton color="primary" :disabled="horusOcupado" @click="salirHorus"><CSpinner v-if="horusOcupado" size="sm" class="me-1" />Salir del modo Horus</CButton>
+    </CCardBody>
+    <CCardBody v-else>
+      <p class="small text-body-secondary">
+        Muestra solo unas etiquetas o álbumes (por ejemplo, para enseñar fotos del trabajo). Todo lo demás se oculta en todos tus dispositivos,
+        incluidos los nombres de las otras etiquetas, hasta que salgas desde aquí con tu passkey. Durante el modo solo se mira, se sube (entra a lo
+        elegido) y se etiqueta.
+      </p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="fw-semibold small mb-1">Etiquetas</div>
+          <div v-if="!boveda.etiquetas.length" class="small text-body-secondary">No hay etiquetas.</div>
+          <div v-for="e in boveda.etiquetas" :key="e.id" class="form-check">
+            <input :id="`horus-e-${e.id}`" v-model="eligeEtq" class="form-check-input" type="checkbox" :value="e.id" />
+            <label class="form-check-label" :for="`horus-e-${e.id}`">{{ e.name }} <span class="text-body-secondary small">({{ e.total }})</span></label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="fw-semibold small mb-1">Álbumes</div>
+          <div v-if="!boveda.albumes.length" class="small text-body-secondary">No hay álbumes.</div>
+          <div v-for="a in boveda.albumes" :key="a.id" class="form-check">
+            <input :id="`horus-a-${a.id}`" v-model="eligeAlb" class="form-check-input" type="checkbox" :value="a.id" />
+            <label class="form-check-label" :for="`horus-a-${a.id}`">{{ a.name }} <span class="text-body-secondary small">({{ a.total }})</span></label>
+          </div>
+        </div>
+      </div>
+      <CButton color="primary" class="mt-3" :disabled="!totalHorus || horusOcupado" @click="confirmarHorus = true">Activar modo Horus{{ totalHorus ? ` (${totalHorus})` : '' }}</CButton>
+    </CCardBody>
+  </CCard>
+
+  <template v-if="!boveda.horus">
 
   <CCard class="mb-4">
     <CCardHeader class="fw-semibold">Passkeys</CCardHeader>
@@ -182,6 +264,19 @@ onMounted(() => Promise.all([cargar(), boveda.cargar()]).catch((e) => toast.erro
     </CModalFooter>
   </CModal>
 
+  </template>
+
+  <CModal :visible="confirmarHorus" alignment="center" @close="confirmarHorus = false">
+    <CModalHeader><CModalTitle>¿Activar el modo Horus?</CModalTitle></CModalHeader>
+    <CModalBody>
+      Solo se verán <strong>{{ totalHorus }}</strong> {{ totalHorus === 1 ? 'elemento' : 'elementos' }}, en este y en tus otros dispositivos. Para volver a ver todo
+      tendrás que venir a Ajustes y confirmar con tu passkey.
+    </CModalBody>
+    <CModalFooter>
+      <CButton color="secondary" variant="ghost" @click="confirmarHorus = false">Cancelar</CButton>
+      <CButton color="primary" @click="activarHorus">Activar</CButton>
+    </CModalFooter>
+  </CModal>
   <CModal :visible="!!borrar" @close="borrar = null" alignment="center">
     <CModalHeader><CModalTitle>¿Quitar la passkey?</CModalTitle></CModalHeader>
     <CModalBody v-if="borrar">Se quita <strong>{{ borrar.name }}</strong>. Ya no podrá entrar ni abrir la bóveda.</CModalBody>
