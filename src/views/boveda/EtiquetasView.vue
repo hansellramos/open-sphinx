@@ -26,6 +26,8 @@ const lista = computed(() => {
   const q = buscar.value.trim().toLowerCase()
   return q ? boveda.etiquetas.filter((t) => t.name.toLowerCase().includes(q)) : boveda.etiquetas
 })
+// Al final: lo que no tiene etiqueta (no en modo Horus, donde las ocultas harían parecer «sin etiqueta» lo que sí tiene).
+const sin = computed(() => (boveda.horus || buscar.value.trim() || !boveda.sinEtiqueta.length ? null : boveda.sinEtiqueta.length))
 
 onMounted(() => boveda.cargar().catch((e) => toast.error(e)))
 </script>
@@ -39,13 +41,18 @@ onMounted(() => boveda.cargar().catch((e) => toast.error(e)))
     </CButtonGroup>
   </PageHeader>
 
-  <div v-if="!boveda.etiquetas.length" class="text-body-secondary">Todavía no hay etiquetas. Agrégalas desde cualquier elemento.</div>
+  <div v-if="!boveda.etiquetas.length && !sin" class="text-body-secondary">Todavía no hay etiquetas. Agrégalas desde cualquier elemento.</div>
 
   <div v-else-if="vista === 'iconos'" class="etiquetas-grid mb-4">
     <RouterLink v-for="t in lista" :key="t.id" :to="`/etiquetas/${t.id}`" class="etiqueta-tile">
       <span :class="`etiqueta-icono bg-${t.color}`"><CIcon icon="cil-tag" size="xl" /></span>
       <span class="fw-semibold text-truncate mw-100">{{ t.name }}</span>
       <span class="small text-body-secondary">{{ t.total }} {{ t.total === 1 ? 'elemento' : 'elementos' }}</span>
+    </RouterLink>
+    <RouterLink v-if="sin" to="/etiquetas/sin" class="etiqueta-tile etiqueta-sin">
+      <span class="etiqueta-icono bg-secondary"><CIcon icon="cil-tag" size="xl" /></span>
+      <span class="fw-semibold text-truncate mw-100">Sin etiqueta</span>
+      <span class="small text-body-secondary">{{ sin }} {{ sin === 1 ? 'elemento' : 'elementos' }}</span>
     </RouterLink>
   </div>
 
@@ -54,6 +61,12 @@ onMounted(() => boveda.cargar().catch((e) => toast.error(e)))
       <span :class="`etiqueta-punto bg-${t.color}`"></span>
       <span class="text-truncate">{{ t.name }}</span>
       <span class="ms-auto small text-body-secondary">{{ t.total }}</span>
+      <CIcon icon="cil-chevron-right" class="text-body-secondary" />
+    </CListGroupItem>
+    <CListGroupItem v-if="sin" as="RouterLink" to="/etiquetas/sin" class="d-flex align-items-center gap-3 etiqueta-sin">
+      <span class="etiqueta-punto bg-secondary"></span>
+      <span class="text-truncate fst-italic">Sin etiqueta</span>
+      <span class="ms-auto small text-body-secondary">{{ sin }}</span>
       <CIcon icon="cil-chevron-right" class="text-body-secondary" />
     </CListGroupItem>
   </CListGroup>

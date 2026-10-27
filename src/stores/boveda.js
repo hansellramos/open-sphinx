@@ -39,6 +39,11 @@ export const useBovedaStore = defineStore('boveda', () => {
       .map((t) => ({ ...t, total: listos.value.filter((v) => v.m.tags?.includes(t.id)).length }))
       .sort((a, b) => a.name.localeCompare(b.name, 'es')),
   )
+  // Sin etiqueta: sin ninguna que exista en el catálogo (las de etiquetas borradas no cuentan).
+  const sinEtiqueta = computed(() => {
+    const ids = new Set(catalogo.value.tags.map((t) => t.id))
+    return listos.value.filter((v) => !v.m.tags?.some((id) => ids.has(id)))
+  })
   // Huella (sha256 del original) → elemento, para no subir duplicados. Solo lo procesado desde que existe.
   const huellas = computed(() => new Map(listos.value.filter((v) => v.m.sha256).map((v) => [v.m.sha256, v])))
   const etiqueta = (id) => catalogo.value.tags.find((t) => t.id === id)
@@ -590,7 +595,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   )
 
   return {
-    items, listos, galeria, archivos, pendientes, favoritos, etiquetas, cargado, COLORES,
+    items, listos, galeria, archivos, pendientes, favoritos, etiquetas, sinEtiqueta, cargado, COLORES,
     huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     horus, foco, activarHorus, salirHorus,
     favorito, renombrar, borrar, papelera, restaurar, borrarDefinitivo, restaurarOriginal, descartarOriginal, thumbUrl, olvidarMiniatura, publicKey: () => publicKey,

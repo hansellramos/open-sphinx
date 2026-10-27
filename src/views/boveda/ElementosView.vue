@@ -53,7 +53,10 @@ watch(vista, (x) => {
 const modo = computed(() => route.name) // Galeria | Archivos | Favoritos | Etiqueta | Album
 const enLista = computed(() => modo.value === 'Archivos')
 const conPendientes = computed(() => modo.value === 'Galeria' || modo.value === 'Archivos')
-const etq = computed(() => (modo.value === 'Etiqueta' ? boveda.etiqueta(route.params.id) : null))
+// /etiquetas/sin: lo que no tiene ninguna etiqueta (no es una etiqueta de verdad).
+const SIN = { id: 'sin', name: 'Sin etiqueta' }
+const esSin = computed(() => modo.value === 'Etiqueta' && route.params.id === 'sin')
+const etq = computed(() => (esSin.value ? SIN : modo.value === 'Etiqueta' ? boveda.etiqueta(route.params.id) : null))
 const ro = computed(() => !!boveda.horus) // modo Horus: solo mirar (y etiquetar)
 const alb = computed(() => (modo.value === 'Album' ? boveda.album(route.params.id) : null))
 // ?agregar=<álbum>: se eligen elementos para agregarlos a ese álbum.
@@ -66,6 +69,7 @@ const titulo = computed(() => ({ Galeria: 'Fotos y videos', Archivos: 'Archivos'
 
 const base = computed(() => {
   if (modo.value === 'Favoritos') return boveda.favoritos
+  if (esSin.value) return boveda.horus ? [] : boveda.sinEtiqueta
   if (modo.value === 'Etiqueta') return boveda.listos.filter((v) => v.m.tags?.includes(route.params.id))
   if (modo.value === 'Album') return alb.value?.elementos ?? []
   if (modo.value === 'Archivos') return boveda.archivos

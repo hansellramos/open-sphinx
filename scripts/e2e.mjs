@@ -83,6 +83,13 @@ try {
   if ((await page.locator('.thumb img').getAttribute('class'))?.includes('difuminada')) throw new Error('el toggle no quita el difuminado')
   paso('toggle de difuminar')
 
+  // «Sin etiqueta»: el video recién subido todavía no tiene ninguna.
+  await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
+  await page.locator('.etiqueta-sin', { hasText: 'Sin etiqueta' }).click()
+  await page.waitForURL(/#\/etiquetas\/sin$/)
+  if ((await page.locator('.video-card').count()) !== 1) throw new Error('«Sin etiqueta» no muestra el video sin etiquetas')
+  await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click()
+  await page.locator('.video-card').first().waitFor()
   // Etiquetas: desde el menú de la tarjeta, luego filtrar.
   await page.getByRole('button', { name: 'Opciones' }).first().click()
   await page.getByRole('button', { name: 'Etiquetas' }).click()
@@ -95,6 +102,13 @@ try {
   await page.locator('.etiqueta-tile', { hasText: '2024' }).click()
   await page.waitForURL(/#\/etiquetas\//)
   if ((await page.locator('.video-card').count()) !== 1) throw new Error('la etiqueta del menú no muestra el video')
+  // «Sin etiqueta»: aquí solo está el video y ya tiene etiquetas, así que no aparece (se prueba con la foto más abajo).
+  await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
+  await page.locator('.etiqueta-tile', { hasText: '2024' }).waitFor()
+  if (await page.locator('.etiqueta-sin').count()) throw new Error('«Sin etiqueta» sigue apareciendo con todo etiquetado')
+  paso('«Sin etiqueta» en Etiquetas: aparece con lo que no tiene ninguna y se va al etiquetarlo')
+  await page.locator('.etiqueta-tile', { hasText: '2024' }).click()
+  await page.locator('.video-card').first().waitFor()
   // Lo que ve el servidor: nada legible.
   const crudo = await page.evaluate(async () => JSON.stringify([await (await fetch('/api/videos')).json(), await (await fetch('/api/boveda')).json()]))
   for (const x of ['Viajes', '2024', 'prueba', 'iPhone', '4.6534']) if (crudo.includes(x)) throw new Error(`el servidor ve "${x}" en claro`)
