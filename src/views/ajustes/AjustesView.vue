@@ -78,11 +78,14 @@ const eligeEtq = ref([])
 const eligeAlb = ref([])
 const confirmarHorus = ref(false)
 const horusOcupado = ref(false)
-const totalHorus = computed(() => {
-  const ids = new Set()
-  for (const v of boveda.listos) if (v.m.tags?.some((t) => eligeEtq.value.includes(t))) ids.add(v.id)
-  for (const a of boveda.albumes) if (eligeAlb.value.includes(a.id)) for (const v of a.elementos) ids.add(v.id)
-  return ids.size
+const totalHorus = computed(() => boveda.seleccionHorus(eligeEtq.value, eligeAlb.value).size)
+// Cómo se combina lo elegido, en palabras.
+const reglaHorus = computed(() => {
+  const e = eligeEtq.value.length, a = eligeAlb.value.length
+  if (!e && !a) return ''
+  const alb = a ? (a === 1 ? 'Todo lo del álbum' : 'Todo lo de esos álbumes') : ''
+  const etq = e ? (e === 1 ? 'que tenga esa etiqueta' : `que tenga las ${e} etiquetas a la vez`) : ''
+  return a && e ? `${alb} ${etq}.` : a ? `${alb}, sin importar las etiquetas.` : `Lo ${etq}.`
 })
 async function activarHorus() {
   confirmarHorus.value = false
@@ -155,6 +158,7 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+      <p v-if="reglaHorus" class="small mt-3 mb-0 horus-regla">{{ reglaHorus }}<span v-if="!totalHorus" class="text-danger"> No hay nada que cumpla todo.</span></p>
       <CButton color="primary" class="mt-3" :disabled="!totalHorus || horusOcupado" @click="confirmarHorus = true">Activar modo Horus{{ totalHorus ? ` (${totalHorus})` : '' }}</CButton>
     </CCardBody>
   </CCard>

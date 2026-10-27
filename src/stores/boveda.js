@@ -265,10 +265,16 @@ export const useBovedaStore = defineStore('boveda', () => {
   // y al salir se unen al completo (por nombre: si ya existía, queda una sola).
   const foco = computed(() => (horus.value ? (catalogo.value.foco ?? { etiquetas: [], albumes: [] }) : null))
 
+  // Lo que se ve en modo Horus. Con álbumes: lo de esos álbumes; con etiquetas: lo que tenga todas a la vez; con las
+  // dos: lo de los álbumes que además tenga todas las etiquetas.
+  function seleccionHorus(tags = [], albs = []) {
+    if (!tags.length && !albs.length) return new Set()
+    const enAlbumes = new Set(catalogo.value.albumes.filter((x) => albs.includes(x.id)).flatMap((a) => a.items))
+    return new Set(listos.value.filter((v) => (!albs.length || enAlbumes.has(v.id)) && tags.every((t) => v.m.tags?.includes(t))).map((v) => v.id))
+  }
+
   async function activarHorus({ etiquetas: tags = [], albumes: albs = [] }) {
-    const ids = new Set()
-    for (const v of listos.value) if (v.m.tags?.some((t) => tags.includes(t))) ids.add(v.id)
-    for (const a of catalogo.value.albumes.filter((x) => albs.includes(x.id))) for (const id of a.items) if (porId.value.has(id)) ids.add(id)
+    const ids = seleccionHorus(tags, albs)
     if (!ids.size) throw new Error('Lo elegido no tiene fotos, videos ni archivos')
     const reducido = {
       v: 1,
@@ -597,7 +603,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, sinEtiqueta, cargado, COLORES,
     huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
-    horus, foco, activarHorus, salirHorus,
+    horus, foco, seleccionHorus, activarHorus, salirHorus,
     favorito, renombrar, borrar, papelera, restaurar, borrarDefinitivo, restaurarOriginal, descartarOriginal, thumbUrl, olvidarMiniatura, publicKey: () => publicKey,
     cifrarMeta, descifrarMeta, editarVarios, fechaVarios, ubicacionVarios, etiquetasVarios,
     albumes, album, albumesDe, crearAlbum, editarAlbum, borrarAlbum, agregarAAlbum, quitarDeAlbum, portadaAlbum, asignarAlbumes,

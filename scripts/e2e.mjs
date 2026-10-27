@@ -909,7 +909,12 @@ try {
   await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
   const viajesAntes = Number((await page.locator('.etiqueta-tile', { hasText: 'Viajes' }).locator('.small').innerText()).match(/\d+/)[0])
   await page.locator('.sidebar a', { hasText: 'Ajustes' }).click()
+  // Varias etiquetas: solo lo que tiene todas a la vez (Trabajo + Viajes: nada).
+  await page.locator('.horus-card').getByLabel(/^Viajes/).check()
   await page.locator('.horus-card').getByLabel(/^Trabajo/).check()
+  await page.locator('.horus-regla', { hasText: 'las 2 etiquetas a la vez' }).getByText('No hay nada que cumpla todo').waitFor()
+  if (await page.locator('.horus-card').getByRole('button', { name: /^Activar modo Horus/ }).isEnabled()) throw new Error('Horus con dos etiquetas debería pedir las dos a la vez')
+  await page.locator('.horus-card').getByLabel(/^Viajes/).uncheck()
   await page.locator('.horus-card').getByRole('button', { name: 'Activar modo Horus (1)' }).click()
   await page.locator('.modal').getByRole('button', { name: 'Activar', exact: true }).click()
   await page.getByText('Modo Horus activo en todos tus dispositivos').waitFor()
@@ -957,7 +962,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.video-card, .mini').length === 2, null, { timeout: 20000 })
   await page.locator('.sidebar a', { hasText: 'Etiquetas' }).click()
   await page.locator('.etiqueta-tile', { hasText: 'Trabajo' }).getByText('2 elementos').waitFor()
-  paso('modo Horus: solo lo elegido (lo hace cumplir la NAS), esfinge reflejada, solo mirar; se etiqueta y se sube dentro del modo')
+  paso('modo Horus: varias etiquetas = todas a la vez; solo lo elegido (lo hace cumplir la NAS), esfinge reflejada, solo mirar; se etiqueta y se sube dentro del modo')
 
   // Salir con la passkey: se ve todo y «Viajes» queda una sola (con lo etiquetado durante el modo).
   await page.locator('.sidebar a', { hasText: 'Ajustes' }).click()
