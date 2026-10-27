@@ -24,6 +24,7 @@ export const useBovedaStore = defineStore('boveda', () => {
   const metaKey = shallowRef(null)
   const thumbs = new Map() // id → blob URL
   const secuencia = ref([]) // ids en el orden de la última lista vista, para pasar al anterior/siguiente
+  const ultimoVisto = ref(null) // lo último abierto en el visor (al volver, la lista se desplaza hasta ahí)
   let publicKey = null
   let cargando = null
   let timer = null
@@ -602,7 +603,7 @@ export const useBovedaStore = defineStore('boveda', () => {
 
   return {
     items, listos, galeria, archivos, pendientes, favoritos, etiquetas, sinEtiqueta, cargado, COLORES,
-    huellas, secuencia, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
+    huellas, secuencia, ultimoVisto, marca, ajustarPorHuella, paraCompartir, compartir, tipo, etiqueta, fechaDe, nombresDe, original, imagen, descargar, sellar, etiquetasPara, cargar, guardarMeta, asignarEtiquetas, editarEtiqueta, borrarEtiqueta,
     horus, foco, seleccionHorus, activarHorus, salirHorus,
     favorito, renombrar, borrar, papelera, restaurar, borrarDefinitivo, restaurarOriginal, descartarOriginal, thumbUrl, olvidarMiniatura, publicKey: () => publicKey,
     cifrarMeta, descifrarMeta, editarVarios, fechaVarios, ubicacionVarios, etiquetasVarios,

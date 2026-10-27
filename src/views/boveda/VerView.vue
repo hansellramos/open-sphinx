@@ -13,7 +13,7 @@ function tomarReproducir(id) {
 // Ver un elemento. Video: hls.js baja cada fragmento cifrado y este loader lo descifra. Foto: se baja y
 // descifra la imagen (al tocarla, pantalla completa con zoom). Archivo: vista previa si el navegador la sabe
 // mostrar, y descarga del original. Se pasa al anterior/siguiente deslizando o con las flechas.
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Hls from 'hls.js'
 import { useAuthStore } from '@/stores/auth'
@@ -96,6 +96,7 @@ const pos = computed(() => secuencia.value.indexOf(route.params.id))
 const anterior = computed(() => (pos.value > 0 ? secuencia.value[pos.value - 1] : null))
 const siguiente = computed(() => (pos.value >= 0 ? secuencia.value[pos.value + 1] ?? null : null))
 const ir = (id) => id && router.replace(`/ver/${id}`)
+watch(() => route.params.id, (id) => id && (boveda.ultimoVisto = id), { immediate: true })
 // Atrás: a la pantalla anterior de la app; si se entró directo (p. ej. tras desbloquear), a la galería.
 const volver = () => (window.history.state?.back ? router.back() : router.push('/galeria'))
 const idsVisor = computed(() => secuencia.value.filter((id) => boveda.tipo(boveda.items.find((v) => v.id === id)) !== 'archivo'))

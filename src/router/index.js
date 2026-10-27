@@ -14,6 +14,7 @@ const routes = [
       { path: 'galeria', name: 'Galeria', component: () => import('@/views/boveda/ElementosView.vue') },
       { path: 'archivos', name: 'Archivos', component: () => import('@/views/boveda/ElementosView.vue') },
       { path: 'favoritos', name: 'Favoritos', component: () => import('@/views/boveda/ElementosView.vue') },
+      { path: 'recientes', name: 'Recientes', component: () => import('@/views/boveda/ElementosView.vue') },
       { path: 'etiquetas', name: 'Etiquetas', component: () => import('@/views/boveda/EtiquetasView.vue') },
       { path: 'etiquetas/:id', name: 'Etiqueta', component: () => import('@/views/boveda/ElementosView.vue') },
       { path: 'albumes', name: 'Albumes', component: () => import('@/views/boveda/AlbumesView.vue') },
@@ -37,7 +38,7 @@ const routes = [
 // Lo que no existe en modo Horus (solo mirar).
 export const FUERA_DE_HORUS = ['Exportados', 'Optimizar', 'Papelera', 'Cola']
 
-const router = createRouter({ history: createWebHashHistory(), routes, scrollBehavior: () => ({ top: 0 }) })
+const router = createRouter({ history: createWebHashHistory(), routes, scrollBehavior: (to, from, guardado) => guardado ?? { top: 0 } })
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()

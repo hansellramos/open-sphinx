@@ -3,9 +3,9 @@
 // cambiarles a la vez la fecha, las etiquetas o la ubicación, y agregarlos a álbumes (o quitarlos del abierto). Filtros por texto, fecha, ubicación y zona
 // del mapa; todo se hace aquí sobre los metadatos ya descifrados. Fotos y videos en miniaturas (cuadritos por día,
 // para el celular) o en tarjetas por mes; se muestran por fecha y el nombre queda en los detalles. Los archivos, en lista.
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useCompartir } from '@/lib/compartir'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useBovedaStore } from '@/stores/boveda'
 import { useToastStore } from '@/stores/toast'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -17,6 +17,7 @@ import EdicionMasivaModal from '@/components/elementos/EdicionMasivaModal.vue'
 import ZipModal from '@/components/elementos/ZipModal.vue'
 import UbicacionModal from '@/components/elementos/UbicacionModal.vue'
 import { dia, fecha, fechaCorta, iconoArchivo, mesAnio, rangoFechas, tamano } from '@/lib/formato'
+import { memoria, ZOOMS } from '@/lib/listas'
 
 const route = useRoute()
 const router = useRouter()
@@ -44,15 +45,36 @@ const leerVista = () => {
   }
 }
 const vista = ref(leerVista()) // miniaturas | tarjetas
+// Zoom de las miniaturas: por día (más cerca), por mes o por año (más lejos). Pellizco, Ctrl/⌘ + rueda o los botones.
+const leerZoom = () => {
+  try {
+    const z = localStorage.getItem('boveda-galeria-zoom')
+    return ZOOMS.includes(z) ? z : 'dia'
+  } catch {
+    return 'dia'
+  }
+}
+const zoom = ref(leerZoom())
+watch(zoom, (z) => {
+  try {
+    localStorage.setItem('boveda-galeria-zoom', z)
+  } catch {}
+})
+// «Agregados recientemente»: lo subido la última semana; «Ver más» suma semanas.
+const semanas = ref(1)
+const DIA = 86_400_000
 watch(vista, (x) => {
   try {
     localStorage.setItem(CLAVE_VISTA, x)
   } catch {}
 })
 
-const modo = computed(() => route.name) // Galeria | Archivos | Favoritos | Etiqueta | Album
+const modo = computed(() => route.name) // Galeria | Archivos | Favoritos | Recientes | Etiqueta | Album
 const enLista = computed(() => modo.value === 'Archivos')
 const conPendientes = computed(() => modo.value === 'Galeria' || modo.value === 'Archivos')
+const recientes = computed(() => modo.value === 'Recientes')
+// En Recientes el orden es siempre por fecha de subida.
+const ordenEf = computed(() => (recientes.value ? 'subido-desc' : orden.value))
 // /etiquetas/sin: lo que no tiene ninguna etiqueta (no es una etiqueta de verdad).
 const SIN = { id: 'sin', name: 'Sin etiqueta' }
 const esSin = computed(() => modo.value === 'Etiqueta' && route.params.id === 'sin')
@@ -65,10 +87,27 @@ const zona = computed(() => {
   const z = String(route.query.zona ?? '').split(',').map(Number)
   return z.length === 4 && z.every(Number.isFinite) ? { s: z[0], w: z[1], n: z[2], e: z[3] } : null
 })
-const titulo = computed(() => ({ Galeria: 'Fotos y videos', Archivos: 'Archivos', Favoritos: 'Favoritos' })[modo.value] ?? etq.value?.name ?? alb.value?.name ?? '')
+const titulo = computed(() => ({ Galeria: 'Fotos y videos', Archivos: 'Archivos', Favoritos: 'Favoritos', Recientes: 'Agregados recientemente' })[modo.value] ?? etq.value?.name ?? alb.value?.name ?? '')
 
+const desdeRecientes = computed(() => new Date(Date.now() - semanas.value * 7 * DIA))
+// Lo siguiente más antiguo (para «Ver más»): si la semana anterior está vacía, salta hasta donde haya algo.
+const masAntiguo = computed(() => {
+  if (!recientes.value) return null
+  let max = null
+  for (const v of boveda.galeria) {
+    const t = new Date(v.createdAt)
+    if (t < desdeRecientes.value && (!max || t > max)) max = t
+  }
+  return max
+})
+function verMas() {
+  const t = masAntiguo.value
+  if (!t) return
+  semanas.value = Math.max(semanas.value + 1, Math.ceil((Date.now() - t) / (7 * DIA)))
+}
 const base = computed(() => {
   if (modo.value === 'Favoritos') return boveda.favoritos
+  if (recientes.value) return boveda.galeria.filter((v) => new Date(v.createdAt) >= desdeRecientes.value)
   if (esSin.value) return boveda.horus ? [] : boveda.sinEtiqueta
   if (modo.value === 'Etiqueta') return boveda.listos.filter((v) => v.m.tags?.includes(route.params.id))
   if (modo.value === 'Album') return alb.value?.elementos ?? []
@@ -93,8 +132,8 @@ const filtrados = computed(() => {
       (!zona.value || (loc && loc.lat >= zona.value.s && loc.lat <= zona.value.n && loc.lon >= zona.value.w && loc.lon <= zona.value.e))
     )
   })
-  const clave = orden.value.startsWith('subido') ? (v) => v.createdAt : (v) => boveda.fechaDe(v)
-  const signo = orden.value.endsWith('desc') ? -1 : 1
+  const clave = ordenEf.value.startsWith('subido') ? (v) => v.createdAt : (v) => boveda.fechaDe(v)
+  const signo = ordenEf.value.endsWith('desc') ? -1 : 1
   return [...lista].sort((a, b) => signo * (new Date(clave(a)) - new Date(clave(b))))
 })
 
@@ -110,9 +149,9 @@ function abrir(v) {
 const grupos = computed(() => {
   const out = []
   for (const v of filtrados.value) {
-    const f = orden.value.startsWith('subido') ? v.createdAt : boveda.fechaDe(v)
-    const k = !enLista.value && vista.value === 'miniaturas' ? dia(f) : mesAnio(f)
-    if (out.at(-1)?.k !== k) out.push({ k, items: [] })
+    const f = ordenEf.value.startsWith('subido') ? v.createdAt : boveda.fechaDe(v)
+    const k = enLista.value || vista.value !== 'miniaturas' ? mesAnio(f) : zoom.value === 'anio' ? String(new Date(f).getFullYear()) : zoom.value === 'mes' ? mesAnio(f) : dia(f)
+    if (out.at(-1)?.k !== k) out.push({ k, f, items: [] })
     out.at(-1).items.push(v)
   }
   return out
@@ -178,6 +217,171 @@ const bajo = ref(false)
 const alScroll = () => (bajo.value = window.scrollY > 250)
 onMounted(() => window.addEventListener('scroll', alScroll, { passive: true }))
 onBeforeUnmount(() => window.removeEventListener('scroll', alScroll))
+
+// ---------- zoom (por día / mes / año) ----------
+const conZoom = computed(() => !enLista.value && vista.value === 'miniaturas')
+// Al cambiar el zoom se queda en el mismo lugar: el elemento bajo el punto (centro del pellizco o de la pantalla)
+// vuelve a quedar a la misma altura.
+async function cambiarZoom(paso, x = window.innerWidth / 2, y = window.innerHeight / 3) {
+  const i = ZOOMS.indexOf(zoom.value) + paso
+  if (!conZoom.value || i < 0 || i >= ZOOMS.length) return
+  const el = document.elementFromPoint(x, y)?.closest('[data-id]')
+  const id = el?.dataset.id
+  const alto = el?.getBoundingClientRect().top
+  zoom.value = ZOOMS[i]
+  await nextTick()
+  const nuevo = id && document.querySelector(`[data-id="${id}"]`)
+  if (nuevo) window.scrollBy(0, nuevo.getBoundingClientRect().top - alto)
+}
+// Pellizco: Safari (iOS/macOS) da la escala en gesture*; los demás, con dos dedos. Ctrl/⌘ + rueda (también el
+// pellizco del trackpad) en el computador. Abrir los dedos acerca (hacia el día); cerrarlos aleja (hacia el año).
+let pellizco = null
+let rueda = 0
+let ultimoZoom = 0
+const distancia = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+const centro = (t) => [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2]
+function zoomPorEscala(escala, x, y) {
+  if (escala > 1.25) cambiarZoom(-1, x, y)
+  else if (escala < 0.8) cambiarZoom(1, x, y)
+}
+const gestos = {
+  gesturestart: (e) => conZoom.value && e.preventDefault(),
+  gesturechange: (e) => conZoom.value && e.preventDefault(),
+  gestureend: (e) => {
+    if (!conZoom.value) return
+    e.preventDefault()
+    zoomPorEscala(e.scale, e.clientX || undefined, e.clientY || undefined)
+  },
+  touchstart: (e) => {
+    if (conZoom.value && e.touches.length === 2) pellizco = { d: distancia(e.touches), c: centro(e.touches), escala: 1 }
+  },
+  touchmove: (e) => {
+    if (!pellizco || e.touches.length !== 2) return
+    e.preventDefault()
+    pellizco.escala = distancia(e.touches) / pellizco.d
+  },
+  touchend: (e) => {
+    if (!pellizco || e.touches.length) return
+    const p = pellizco
+    pellizco = null
+    zoomPorEscala(p.escala, ...p.c)
+  },
+  wheel: (e) => {
+    if (!conZoom.value || !(e.ctrlKey || e.metaKey)) return
+    e.preventDefault()
+    rueda += e.deltaY
+    if (Math.abs(rueda) < 40 || Date.now() - ultimoZoom < 350) return
+    ultimoZoom = Date.now()
+    cambiarZoom(rueda > 0 ? 1 : -1, e.clientX, e.clientY)
+    rueda = 0
+  },
+}
+onMounted(() => {
+  for (const [ev, fn] of Object.entries(gestos)) window.addEventListener(ev, fn, { passive: false })
+})
+onBeforeUnmount(() => {
+  for (const [ev, fn] of Object.entries(gestos)) window.removeEventListener(ev, fn)
+})
+
+// ---------- fecha junto a la barra de desplazamiento ----------
+// Al desplazarse aparece a la derecha la fecha por la que se va; arrastrándola se salta por toda la lista.
+const pastilla = ref(null) // { texto, y } mientras se ve
+let ocultar = null
+let arrastrando = false
+let cuadro = 0
+const MARGEN = 70 // alto de la barra de arriba
+function textoEn() {
+  const hs = document.querySelectorAll('[data-grupo]')
+  if (!hs.length) return null
+  // El último encabezado que ya pasó por arriba (búsqueda binaria: están en orden).
+  let lo = 0, hi = hs.length - 1, r = 0
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1
+    if (hs[m].getBoundingClientRect().top <= MARGEN + 40) (r = m), (lo = m + 1)
+    else hi = m - 1
+  }
+  const f = hs[r].dataset.grupo
+  return zoom.value === 'anio' && conZoom.value ? String(new Date(f).getFullYear()) : mesAnio(f)
+}
+function mostrarPastilla() {
+  const total = document.documentElement.scrollHeight - window.innerHeight
+  if (total < window.innerHeight * 1.5 || !grupos.value.length) return (pastilla.value = null)
+  const texto = textoEn()
+  if (!texto) return
+  const y = MARGEN + (window.scrollY / total) * (window.innerHeight - MARGEN - 60)
+  pastilla.value = { texto, y }
+  clearTimeout(ocultar)
+  if (!arrastrando) ocultar = setTimeout(() => (pastilla.value = null), 1200)
+}
+const alDesplazar = () => {
+  cancelAnimationFrame(cuadro)
+  cuadro = requestAnimationFrame(mostrarPastilla)
+}
+function arrastrar(e) {
+  e.preventDefault()
+  arrastrando = true
+  e.target.setPointerCapture?.(e.pointerId)
+  const mover = (ev) => {
+    const total = document.documentElement.scrollHeight - window.innerHeight
+    const k = Math.min(1, Math.max(0, (ev.clientY - MARGEN) / (window.innerHeight - MARGEN - 60)))
+    window.scrollTo(0, k * total)
+  }
+  const fin = () => {
+    arrastrando = false
+    window.removeEventListener('pointermove', mover)
+    window.removeEventListener('pointerup', fin)
+    window.removeEventListener('pointercancel', fin)
+    mostrarPastilla()
+  }
+  window.addEventListener('pointermove', mover)
+  window.addEventListener('pointerup', fin)
+  window.addEventListener('pointercancel', fin)
+}
+onMounted(() => window.addEventListener('scroll', alDesplazar, { passive: true }))
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', alDesplazar)
+  clearTimeout(ocultar)
+  cancelAnimationFrame(cuadro)
+})
+
+// ---------- volver con «atrás» al mismo lugar ----------
+// Al abrir una foto se guarda cómo estaba la lista; al volver (no al entrar de nuevo desde el menú) se restaura y
+// se desplaza hasta donde estaba, o hasta la última foto vista si con el visor se pasó a otras.
+onBeforeRouteLeave((to) => {
+  if (to.name !== 'Ver') {
+    memoria.delete(route.fullPath)
+    return
+  }
+  memoria.set(route.fullPath, {
+    y: window.scrollY, q: q.value, desde: desde.value, hasta: hasta.value, conUbicacion: conUbicacion.value,
+    etqFiltro: etqFiltro.value, etqModo: etqModo.value, orden: orden.value, clase: clase.value, semanas: semanas.value, verFiltros: verFiltros.value,
+  })
+})
+const previo = window.history.state?.forward ? memoria.get(route.fullPath) : null
+if (previo) {
+  q.value = previo.q
+  desde.value = previo.desde
+  hasta.value = previo.hasta
+  conUbicacion.value = previo.conUbicacion
+  etqFiltro.value = previo.etqFiltro
+  etqModo.value = previo.etqModo
+  orden.value = previo.orden
+  clase.value = previo.clase
+  semanas.value = previo.semanas
+  verFiltros.value = previo.verFiltros
+}
+let devuelto = false
+async function volverAlLugar() {
+  if (!previo || devuelto) return
+  devuelto = true
+  await nextTick()
+  window.scrollTo(0, previo.y)
+  const el = boveda.ultimoVisto && document.querySelector(`[data-id="${boveda.ultimoVisto}"]`)
+  if (el) {
+    const r = el.getBoundingClientRect()
+    if (r.bottom < MARGEN || r.top > window.innerHeight) el.scrollIntoView({ block: 'center' })
+  }
+}
 // Compartir los elegidos en una sola hoja (en el orden de la lista).
 const { progreso: progresoCompartir, compartirVarios } = useCompartir()
 const compartirElegidos = () => compartirVarios(filtrados.value.filter((v) => sel.value?.has(v.id)))
@@ -286,8 +490,10 @@ const zonaDe = (u) => [u.lat - 0.01, u.lon - 0.01, u.lat + 0.01, u.lon + 0.01].m
 
 onMounted(async () => {
   try {
+    if (boveda.cargado) await volverAlLugar() // ya está todo en memoria: sin esperar a la NAS
     await boveda.cargar(true)
     prepararDestino()
+    await volverAlLugar()
   } catch (e) {
     toast.error(e)
   }
@@ -332,7 +538,7 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
     <CCardBody class="d-flex flex-wrap align-items-end gap-3 py-2">
       <div><CFormLabel class="small mb-1">Fecha desde</CFormLabel><CFormInput v-model="desde" type="date" size="sm" /></div>
       <div><CFormLabel class="small mb-1">hasta</CFormLabel><CFormInput v-model="hasta" type="date" size="sm" /></div>
-      <div>
+      <div v-if="!recientes">
         <CFormLabel class="small mb-1">Orden</CFormLabel>
         <CFormSelect v-model="orden" size="sm">
           <option value="tomado-desc">Fecha: recientes primero</option>
@@ -369,7 +575,11 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
         <CNavLink as="button" :active="clase === k" @click="clase = k">{{ txt }}</CNavLink>
       </CNavItem>
     </CNav>
-    <CButtonGroup size="sm" class="ms-auto" role="group" aria-label="Vista">
+    <CButtonGroup v-if="vista === 'miniaturas'" size="sm" class="ms-auto" role="group" aria-label="Zoom">
+      <CButton color="secondary" variant="outline" title="Alejar (por mes, por año)" :disabled="zoom === 'anio'" @click="cambiarZoom(1)"><CIcon icon="cil-zoom-out" /></CButton>
+      <CButton color="secondary" variant="outline" title="Acercar (por mes, por día)" :disabled="zoom === 'dia'" @click="cambiarZoom(-1)"><CIcon icon="cil-zoom-in" /></CButton>
+    </CButtonGroup>
+    <CButtonGroup size="sm" :class="vista === 'miniaturas' ? '' : 'ms-auto'" role="group" aria-label="Vista">
       <CButton color="secondary" :variant="vista === 'miniaturas' ? undefined : 'outline'" title="Miniaturas" @click="vista = 'miniaturas'"><CIcon icon="cil-grid" /></CButton>
       <CButton color="secondary" :variant="vista === 'tarjetas' ? undefined : 'outline'" title="Tarjetas" @click="vista = 'tarjetas'"><CIcon icon="cil-list" /></CButton>
     </CButtonGroup>
@@ -378,8 +588,9 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
   <div v-if="!boveda.cargado" class="text-center py-5"><CSpinner /></div>
   <CCard v-else-if="!base.length" class="text-center py-5">
     <CCardBody>
-      <CIcon :icon="{ Favoritos: 'cil-star', Archivos: 'cil-folder', Etiqueta: 'cil-tags', Album: 'cil-library' }[modo] ?? 'cil-image'" size="3xl" class="text-secondary mb-3" />
-      <p class="mb-3">{{ { Favoritos: 'Aún no marcas favoritos: toca la estrella de cualquier elemento.', Etiqueta: 'Nada tiene esta etiqueta.', Archivos: 'Todavía no hay archivos.', Album: 'Este álbum está vacío.' }[modo] ?? 'Todavía no hay fotos ni videos.' }}</p>
+      <CIcon :icon="{ Favoritos: 'cil-star', Archivos: 'cil-folder', Etiqueta: 'cil-tags', Album: 'cil-library', Recientes: 'cil-history' }[modo] ?? 'cil-image'" size="3xl" class="text-secondary mb-3" />
+      <p class="mb-3">{{ { Favoritos: 'Aún no marcas favoritos: toca la estrella de cualquier elemento.', Etiqueta: 'Nada tiene esta etiqueta.', Archivos: 'Todavía no hay archivos.', Album: 'Este álbum está vacío.', Recientes: semanas === 1 ? 'No subiste nada en la última semana.' : `No subiste nada en las últimas ${semanas} semanas.` }[modo] ?? 'Todavía no hay fotos ni videos.' }}</p>
+      <CButton v-if="recientes && masAntiguo" color="secondary" variant="outline" class="me-2" @click="verMas">Ver lo anterior</CButton>
       <CButton v-if="conPendientes" color="primary" @click="router.push('/subir')">Subir el primero</CButton>
       <CButton v-if="alb && !ro" color="primary" @click="agregarFotos">Agregar fotos</CButton>
     </CCardBody>
@@ -388,9 +599,9 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
 
   <template v-if="enLista">
     <template v-for="g in grupos" :key="g.k">
-      <div class="grupo-mes">{{ g.k }}</div>
+      <div class="grupo-mes" :data-grupo="g.f">{{ g.k }}</div>
       <CListGroup>
-        <CListGroupItem v-for="v in g.items" :key="v.id" class="d-flex align-items-center gap-3 archivo-fila presionable" :active="sel?.has(v.id)" v-on="presionable(v)" @click="abrir(v)">
+        <CListGroupItem v-for="v in g.items" :key="v.id" :data-id="v.id" class="d-flex align-items-center gap-3 archivo-fila presionable" :active="sel?.has(v.id)" v-on="presionable(v)" @click="abrir(v)">
           <CIcon v-if="sel" :icon="sel.has(v.id) ? 'cil-check-circle' : 'cil-circle'" class="flex-shrink-0" />
           <CIcon :icon="iconoArchivo(v.m.originalName, v.m.mime ?? '')" size="xl" class="text-body-secondary flex-shrink-0" />
           <div class="flex-grow-1 min-w-0">
@@ -420,11 +631,11 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
       </CListGroup>
     </template>
   </template>
-  <template v-else-if="vista === 'miniaturas'">
+  <div v-else-if="vista === 'miniaturas'" :class="`zoom-${zoom}`">
     <template v-for="g in grupos" :key="g.k">
-      <div class="grupo-dia">{{ g.k }}</div>
+      <div class="grupo-dia" :data-grupo="g.f">{{ g.k }}</div>
       <div class="mini-grid">
-        <button v-for="v in g.items" :key="v.id" type="button" class="mini presionable" :class="{ elegido: sel?.has(v.id) }" :title="fechaCorta(boveda.fechaDe(v))" :aria-pressed="sel ? sel.has(v.id) : undefined" v-on="presionable(v)" @click="abrir(v)">
+        <button v-for="v in g.items" :key="v.id" :data-id="v.id" type="button" class="mini presionable" :class="{ elegido: sel?.has(v.id) }" :title="fechaCorta(boveda.fechaDe(v))" :aria-pressed="sel ? sel.has(v.id) : undefined" v-on="presionable(v)" @click="abrir(v)">
           <Miniatura :item="v">
             <span v-if="sel" class="marca-sel"><CIcon v-if="sel.has(v.id)" icon="cil-check-alt" size="sm" /></span>
             <CIcon v-if="v.m.favorite" icon="cil-star" size="sm" class="mini-fav" />
@@ -432,11 +643,11 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
         </button>
       </div>
     </template>
-  </template>
+  </div>
   <template v-for="g in grupos" v-else :key="g.k">
-    <div class="grupo-mes">{{ g.k }}</div>
+    <div class="grupo-mes" :data-grupo="g.f">{{ g.k }}</div>
     <div class="video-grid">
-      <CCard v-for="v in g.items" :key="v.id" class="video-card presionable" :class="{ elegido: sel?.has(v.id) }" v-on="presionable(v)" @click="abrir(v)">
+      <CCard v-for="v in g.items" :key="v.id" :data-id="v.id" class="video-card presionable" :class="{ elegido: sel?.has(v.id) }" v-on="presionable(v)" @click="abrir(v)">
         <Miniatura :item="v">
           <span v-if="sel" class="marca-sel"><CIcon v-if="sel.has(v.id)" icon="cil-check-alt" size="sm" /></span>
           <button type="button" class="fav" :class="{ on: v.m.favorite }" :title="v.m.favorite ? 'Quitar de favoritos' : 'Favorito'" @click.stop="favorito(v)">
@@ -475,7 +686,12 @@ watch(() => [route.name, route.params.id, route.query.agregar], () => boveda.car
       </CCard>
     </div>
   </template>
+  <div v-if="recientes && masAntiguo && base.length" class="text-center my-4">
+    <CButton color="secondary" variant="outline" @click="verMas">Ver más (antes del {{ fecha(desdeRecientes) }})</CButton>
+  </div>
   <div class="mb-4"></div>
+
+  <div v-if="pastilla" class="fecha-scroll" :style="{ top: `${pastilla.y}px` }" @pointerdown="arrastrar">{{ pastilla.texto }}</div>
 
   <button v-if="!sel && bajo && base.length" type="button" class="btn btn-primary fab-seleccionar shadow" aria-label="Empezar a seleccionar" @click="empezarSeleccion">
     <CIcon icon="cil-check-circle" class="me-1" />Seleccionar

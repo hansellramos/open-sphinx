@@ -118,6 +118,23 @@ body { background-color: #f4f4f8; }
 .grupo-dia { font-size: .85rem; font-weight: 600; margin: 1rem 0 .4rem; }
 .mini-grid { display: grid; gap: 2px; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); }
 @media (max-width: 575.98px) { .mini-grid { grid-template-columns: repeat(4, 1fr); } }
+// Zoom: por mes (más chicas) y por año (muy chicas, sin duración ni estrella)
+.zoom-mes .mini-grid { grid-template-columns: repeat(auto-fill, minmax(4rem, 1fr)); }
+.zoom-anio .mini-grid { gap: 1px; grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr)); }
+@media (max-width: 575.98px) {
+  .zoom-mes .mini-grid { grid-template-columns: repeat(6, 1fr); }
+  .zoom-anio .mini-grid { grid-template-columns: repeat(10, 1fr); }
+}
+.zoom-mes .grupo-dia, .zoom-anio .grupo-dia { font-size: 1rem; font-weight: 700; margin: 1.25rem 0 .5rem; }
+.zoom-anio .grupo-dia { font-size: 1.35rem; }
+.zoom-anio .mini .dur, .zoom-anio .mini-fav { display: none; }
+// Fecha junto a la barra de desplazamiento (arrastrable)
+.fecha-scroll {
+  position: fixed; right: .4rem; z-index: 1030; transform: translateY(-50%);
+  padding: .3rem .7rem; border-radius: 1rem; font-size: .8rem; font-weight: 600; white-space: nowrap;
+  background: var(--cui-body-bg); color: var(--cui-body-color); box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+  touch-action: none; cursor: grab; user-select: none;
+}
 .mini { padding: 0; border: 0; background: none; display: block; overflow: hidden; }
 .mini .thumb { aspect-ratio: 1; }
 .mini .thumb .dur { right: .2rem; bottom: .2rem; font-size: .65rem; }

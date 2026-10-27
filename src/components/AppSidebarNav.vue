@@ -12,6 +12,7 @@ const fijos = computed(() => [
   { to: '/galeria', name: 'Fotos y videos', icon: 'cil-image', n: boveda.galeria.length },
   { to: '/archivos', name: 'Archivos', icon: 'cil-folder', n: boveda.archivos.length },
   { to: '/favoritos', name: 'Favoritos', icon: 'cil-star', n: boveda.favoritos.length },
+  { to: '/recientes', name: 'Recientes', icon: 'cil-history' },
   { to: '/albumes', name: 'Álbumes', icon: 'cil-library', n: boveda.albumes.length },
   { to: '/etiquetas', name: 'Etiquetas', icon: 'cil-tags', n: boveda.etiquetas.length },
   { to: '/mapa', name: 'Mapa', icon: 'cil-map' },

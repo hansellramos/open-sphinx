@@ -898,6 +898,54 @@ try {
   await page.getByText(/Recomprimido.*·.*(KB|MB)/).first().waitFor({ timeout: 60000 })
   paso('Por qué pesa: tasa, cuadros por segundo y razones en los detalles; recomprimir al mismo tamaño con la tasa elegida')
 
+  // Galería: zoom por día / mes / año, fecha junto a la barra, «atrás» vuelve al mismo lugar, Agregados recientemente.
+  {
+    const aqui = page.url()
+    const tam = page.viewportSize()
+    await page.setViewportSize({ width: 390, height: 500 })
+    await page.locator('.sidebar a', { hasText: 'Fotos y videos' }).click().catch(() => page.goto(`${base}/#/galeria`))
+    await page.waitForURL(/#\/galeria/)
+    await page.getByTitle('Miniaturas').click()
+    await page.locator('.mini').first().waitFor()
+    const encabezados = () => page.locator('.grupo-dia').allInnerTexts()
+    await page.getByTitle(/^Alejar/).click()
+    await page.locator('.zoom-mes').waitFor()
+    if (!(await encabezados()).every((t) => /^[A-ZÁÉÍÓÚ][a-záéíóú]+ de \d{4}$/.test(t))) throw new Error(`zoom por mes: ${await encabezados()}`)
+    await page.getByTitle(/^Alejar/).click()
+    await page.locator('.zoom-anio').waitFor()
+    if (!(await encabezados()).every((t) => /^\d{4}$/.test(t))) throw new Error(`zoom por año: ${await encabezados()}`)
+    if (!(await page.getByTitle(/^Alejar/).isDisabled())) throw new Error('el año es el zoom más lejano')
+    // Ctrl + rueda acerca (como el pellizco del trackpad)
+    await page.mouse.move(195, 300)
+    await page.keyboard.down('Control'); await page.mouse.wheel(0, -200); await page.keyboard.up('Control')
+    await page.locator('.zoom-mes').waitFor()
+    await page.getByTitle(/^Acercar/).click()
+    await page.locator('.zoom-dia').waitFor()
+    // Fecha junto a la barra al desplazarse, y «atrás» desde una foto vuelve al mismo lugar.
+    const alto = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
+    if (alto > 300) {
+      await page.evaluate((y) => scrollTo(0, y), alto)
+      await page.locator('.fecha-scroll').waitFor()
+      const y = await page.evaluate(() => scrollY)
+      await page.locator('.mini').last().click()
+      await page.waitForURL(/#\/ver\//)
+      await page.goBack()
+      await page.waitForURL(/#\/galeria/)
+      await page.waitForFunction((y) => Math.abs(scrollY - y) < 60, y, { timeout: 5000 }).catch(async () => { throw new Error(`atrás no volvió al lugar: ${await page.evaluate(() => scrollY)} vs ${y}`) })
+    } else console.log('  (galería corta: no se prueba la fecha al costado ni el desplazamiento)')
+    // Agregados recientemente: todo lo de la prueba se subió hoy, sin «Ver más».
+    if (!(await page.locator('.sidebar a', { hasText: 'Recientes' }).count())) throw new Error('falta Recientes en el menú')
+    await page.goto(`${base}/#/recientes`)
+    await page.getByText('Agregados recientemente').first().waitFor()
+    await page.locator('.mini, .video-card').first().waitFor()
+    if (await page.getByRole('button', { name: /^Ver más/ }).count()) throw new Error('Recientes no debería ofrecer más: todo es de hoy')
+    await page.getByTitle('Tarjetas').click() // como estaba
+    await page.setViewportSize(tam)
+    await page.goto(aqui)
+    await page.getByPlaceholder('Escribe y Enter…').waitFor()
+    paso('galería: zoom por día, mes y año (botones y Ctrl+rueda), fecha junto a la barra, atrás vuelve al mismo lugar, Agregados recientemente')
+  }
+
   // Modo Horus: solo «Trabajo» se ve (en toda la bóveda) hasta salir con la passkey.
   const urlAccion = page.url().replace(/\?.*$/, '')
   const idAccion = urlAccion.split('/').at(-1)
