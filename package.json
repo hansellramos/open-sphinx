@@ -1,8 +1,8 @@
 {
   "name": "boveda",
   "version": "0.1.0",
-  "description": "Bóveda privada de videos cifrados (sobre AirCore)",
-  "license": "UNLICENSED",
+  "description": "Self-hosted, end-to-end encrypted photo, video and file vault (passkeys + WebAuthn PRF)",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,
   "scripts": {
